@@ -38,6 +38,7 @@ function createTestMaze(): MazeState {
     height: 6,
     cells,
     startPosition: { x: 0, y: 5 },
+    optimalSolutionLength: 0,
   };
 }
 
@@ -60,6 +61,7 @@ function createCorridorMaze(length: number): MazeState {
     height: 1,
     cells,
     startPosition: { x: 0, y: 0 },
+    optimalSolutionLength: 0,
   };
 }
 
@@ -138,6 +140,7 @@ describe('applyMove', () => {
         height: 3,
         cells,
         startPosition: { x: 0, y: 2 },
+        optimalSolutionLength: 0,
       };
 
       const state = createInitialGameState(maze);
@@ -201,6 +204,7 @@ describe('applyMove', () => {
         height: 2,
         cells,
         startPosition: { x: 0, y: 1 },
+        optimalSolutionLength: 0,
       };
 
       const state = createInitialGameState(maze);
@@ -283,7 +287,7 @@ describe('applyMove', () => {
 
   describe('determinism', () => {
     it('produces identical results for same sequence of moves (100 iterations)', () => {
-      const maze = generateMaze('a'.repeat(64), 6, 10);
+      const maze = generateMaze('a'.repeat(64), 'easy');
 
       // Build a sequence of moves
       const moves: PaintMove[] = [

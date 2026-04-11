@@ -24,6 +24,7 @@ function createAllFloorMaze(size: number): MazeState {
     height: size,
     cells,
     startPosition: { x: 0, y: size - 1 },
+    optimalSolutionLength: 0,
   };
 }
 
@@ -53,6 +54,7 @@ function createMazeWithSpecificObstacles(
     height: size,
     cells,
     startPosition: { x: 0, y: size - 1 },
+    optimalSolutionLength: 0,
   };
 }
 
@@ -190,7 +192,7 @@ describe('isValidGameState', () => {
     });
 
     it('returns valid for generated maze', () => {
-      const maze = generateMaze('a'.repeat(64), 6, 10);
+      const maze = generateMaze('a'.repeat(64), 'easy');
       const state = createInitialGameState(maze);
       const result = isValidGameState(state);
       expect(result.valid).toBe(true);
@@ -389,6 +391,7 @@ describe('isValidGameState', () => {
         height: 5,
         cells,
         startPosition: { x: 0, y: 4 },
+        optimalSolutionLength: 0,
       };
 
       const state: MazeGameState = {

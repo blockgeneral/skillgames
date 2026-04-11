@@ -41,7 +41,7 @@ function getCellType(
  * Simulates a slide from the current position in the given direction.
  * Returns the path of coordinates traveled (including start and end).
  */
-function simulateSlide(
+export function simulateSlide(
   cells: ReadonlyArray<ReadonlyArray<CellType>>,
   startX: number,
   startY: number,

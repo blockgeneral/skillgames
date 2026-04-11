@@ -33,22 +33,30 @@ export type CellType = 'floor' | 'obstacle' | 'void';
 
 /**
  * Configuration for each difficulty level.
+ *
+ * The generator uses a reverse random walk that carves floors through an
+ * initially all-obstacle grid. obstacleCarveProb controls randomness,
+ * floorTargetMin/Max control how many floor cells to aim for.
  */
 export interface DifficultyConfig {
   /** Grid width and height (square grids) */
   readonly size: number;
-  /** Target percentage of cells to be obstacles (0-100) */
-  readonly obstaclePercent: number;
+  /** Probability of carving through an obstacle during random walk (0-1) */
+  readonly obstacleCarveProb: number;
+  /** Minimum number of floor cells to generate */
+  readonly floorTargetMin: number;
+  /** Maximum number of floor cells to generate */
+  readonly floorTargetMax: number;
 }
 
 /**
  * Maps difficulty to grid configuration.
- * Obstacle percentages are initial values, expect to tune after playtesting.
+ * Floor target ranges tuned for good puzzle variety.
  */
 export const DIFFICULTY_CONFIGS: Readonly<Record<Difficulty, DifficultyConfig>> = {
-  easy: { size: 6, obstaclePercent: 10 },
-  medium: { size: 9, obstaclePercent: 15 },
-  hard: { size: 12, obstaclePercent: 18 },
+  easy:   { size: 6,  obstacleCarveProb: 0.70, floorTargetMin: 14, floorTargetMax: 24 },
+  medium: { size: 9,  obstacleCarveProb: 0.65, floorTargetMin: 32, floorTargetMax: 50 },
+  hard:   { size: 12, obstacleCarveProb: 0.60, floorTargetMin: 55, floorTargetMax: 90 },
 };
 
 /**
@@ -63,6 +71,8 @@ export interface MazeState {
   readonly cells: ReadonlyArray<ReadonlyArray<CellType>>;
   /** Starting position for the ball (always bottom-left floor cell). */
   readonly startPosition: Coordinate;
+  /** Minimum number of moves to paint all floor cells (BFS-computed). */
+  readonly optimalSolutionLength: number;
 }
 
 /**

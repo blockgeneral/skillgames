@@ -24,6 +24,7 @@ function createAllFloorMaze(size: number): MazeState {
     height: size,
     cells,
     startPosition: { x: 0, y: size - 1 },
+    optimalSolutionLength: 0,
   };
 }
 
@@ -59,6 +60,7 @@ function createMazeWithObstacles(size: number, obstacleCount: number): MazeState
     height: size,
     cells,
     startPosition: { x: 0, y: size - 1 },
+    optimalSolutionLength: 0,
   };
 }
 
@@ -261,7 +263,7 @@ describe('calculateProgress', () => {
     });
 
     it('returns correct progress for generated maze with obstacles', () => {
-      const maze = generateMaze('a'.repeat(64), 6, 10);
+      const maze = generateMaze('a'.repeat(64), 'easy');
       const state = createInitialGameState(maze);
       const floorCount = countFloorCells(maze);
       // Initial state has 1 cell painted

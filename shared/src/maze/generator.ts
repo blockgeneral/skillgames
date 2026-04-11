@@ -1,344 +1,272 @@
-import type { CellType, Coordinate, Direction, MazeState, Seed } from '../types.js';
-import { createPrng, shuffle } from '../prng.js';
+import type { CellType, Coordinate, Difficulty, MazeState, Seed } from '../types.js';
+import { DIFFICULTY_CONFIGS } from '../types.js';
+import { createPrng, randomInt } from '../prng.js';
+import { simulateSlide } from './painter.js';
 
-/**
- * Validates that a seed is a valid 64-character hexadecimal string
- * and normalizes it to lowercase.
- *
- * @param seed - The seed to validate
- * @returns The normalized (lowercase) seed
- * @throws Error if the seed is invalid
- */
-function validateAndNormalizeSeed(seed: string): string {
-  if (seed.length !== 64) {
-    throw new Error(`Seed must be exactly 64 characters, got ${seed.length}`);
-  }
+const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
+type Dir = (typeof DIRECTIONS)[number];
 
-  if (!/^[0-9a-fA-F]+$/.test(seed)) {
-    throw new Error('Seed must be a valid hexadecimal string');
-  }
-
-  return seed.toLowerCase();
-}
-
-/**
- * Validates that the size is within acceptable bounds.
- *
- * @param size - The grid size to validate
- * @throws Error if the size is out of bounds
- */
-function validateSize(size: number): void {
-  if (size < 2) {
-    throw new Error(`Size must be at least 2, got ${size}`);
-  }
-
-  if (size > 100) {
-    throw new Error(`Size must be at most 100, got ${size}`);
+function dirVec(d: Dir): { dx: number; dy: number } {
+  switch (d) {
+    case 'up':    return { dx: 0,  dy: -1 };
+    case 'down':  return { dx: 0,  dy: 1 };
+    case 'left':  return { dx: -1, dy: 0 };
+    case 'right': return { dx: 1,  dy: 0 };
   }
 }
 
-/**
- * Gets the direction vector for a given direction.
- */
-function getDirectionVector(direction: Direction): { dx: number; dy: number } {
-  switch (direction) {
-    case 'up':
-      return { dx: 0, dy: -1 };
-    case 'down':
-      return { dx: 0, dy: 1 };
-    case 'left':
-      return { dx: -1, dy: 0 };
-    case 'right':
-      return { dx: 1, dy: 0 };
-  }
+function inBounds(x: number, y: number, size: number): boolean {
+  return x >= 0 && x < size && y >= 0 && y < size;
+}
+
+function isHexSeed(seed: string): boolean {
+  return /^[0-9a-fA-F]{64}$/.test(seed);
 }
 
 /**
- * Checks if a coordinate is within grid bounds.
+ * Mutable working grid wrapper. Generator builds into a 2D array of CellType
+ * then freezes at the end into the immutable MazeState shape.
  */
-function isInBounds(x: number, y: number, width: number, height: number): boolean {
-  return x >= 0 && x < width && y >= 0 && y < height;
-}
+type Grid = CellType[][];
 
-/**
- * Simulates a slide from a position in a direction.
- * Returns the final position after sliding until hitting an obstacle, void, or edge.
- */
-function simulateSlide(
-  cells: ReadonlyArray<ReadonlyArray<CellType>>,
-  startX: number,
-  startY: number,
-  direction: Direction,
-  width: number,
-  height: number
-): Coordinate {
-  const { dx, dy } = getDirectionVector(direction);
-  let x = startX;
-  let y = startY;
-
-  while (true) {
-    const nextX = x + dx;
-    const nextY = y + dy;
-
-    // Check if next position is out of bounds
-    if (!isInBounds(nextX, nextY, width, height)) {
-      break;
-    }
-
-    // Check if next cell is not a floor
-    const nextCell = cells[nextY]?.[nextX];
-    if (nextCell !== 'floor') {
-      break;
-    }
-
-    // Move to next position
-    x = nextX;
-    y = nextY;
-  }
-
-  return { x, y };
-}
-
-/**
- * Finds cells that are unreachable via slides.
- * Returns coordinates of floor cells that cannot be painted.
- */
-function findUnreachableCells(
-  cells: ReadonlyArray<ReadonlyArray<CellType>>,
-  startPosition: Coordinate,
-  width: number,
-  height: number
-): Coordinate[] {
-  // Find all reachable cells using BFS
-  const reachable = new Set<string>();
-  const visited = new Set<string>();
-  const queue: Coordinate[] = [startPosition];
-
-  reachable.add(`${startPosition.x},${startPosition.y}`);
-  const directions: Direction[] = ['up', 'down', 'left', 'right'];
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const currentKey = `${current.x},${current.y}`;
-
-    if (visited.has(currentKey)) continue;
-    visited.add(currentKey);
-
-    for (const direction of directions) {
-      const dest = simulateSlide(cells, current.x, current.y, direction, width, height);
-
-      // Mark all cells along the path as reachable
-      const { dx, dy } = getDirectionVector(direction);
-      let x = current.x;
-      let y = current.y;
-
-      while (x !== dest.x || y !== dest.y) {
-        x += dx;
-        y += dy;
-        reachable.add(`${x},${y}`);
-      }
-
-      const destKey = `${dest.x},${dest.y}`;
-      if (!visited.has(destKey)) {
-        queue.push(dest);
-      }
-    }
-  }
-
-  // Find unreachable floor cells
-  const unreachable: Coordinate[] = [];
-  for (let y = 0; y < height; y++) {
-    const row = cells[y];
-    if (!row) continue;
-    for (let x = 0; x < width; x++) {
-      if (row[x] === 'floor' && !reachable.has(`${x},${y}`)) {
-        unreachable.push({ x, y });
-      }
-    }
-  }
-
-  return unreachable;
-}
-
-/**
- * Generates a slide puzzle level using constructive placement.
- *
- * The algorithm:
- * 1. Start with random obstacle placement
- * 2. Check for unreachable floor cells
- * 3. If unreachable, strategically add/remove obstacles to create access paths
- * 4. Continue until solvable
- *
- * This guarantees a solvable configuration by construction.
- */
-function generateLevel(
-  seed: string,
-  size: number,
-  obstaclePercent: number,
-  startPosition: Coordinate
-): CellType[][] {
-  const prng = createPrng(seed);
-
-  // Initialize grid with all floor cells
-  const cells: CellType[][] = [];
+function makeGrid(size: number): Grid {
+  const grid: Grid = [];
   for (let y = 0; y < size; y++) {
     const row: CellType[] = [];
     for (let x = 0; x < size; x++) {
-      row.push('floor');
+      row.push('obstacle');
     }
-    cells.push(row);
+    grid.push(row);
   }
+  return grid;
+}
 
-  // Calculate number of obstacles
-  const totalCells = size * size;
-  const targetObstacles = Math.floor((totalCells * obstaclePercent) / 100);
+function countFloors(grid: Grid): number {
+  let n = 0;
+  for (const row of grid) {
+    for (const cell of row) {
+      if (cell === 'floor') n++;
+    }
+  }
+  return n;
+}
 
-  // Create list of candidate positions (excluding start cell)
-  const candidates: Coordinate[] = [];
+type SolveResult =
+  | { solved: true; length: number }
+  | { solved: false };
+
+/**
+ * BFS over (position, painted-bitmask) states. Returns the minimum number of
+ * slide moves to paint every floor cell, or { solved: false } if no such
+ * sequence exists. Uses BigInt for the bitmask so there is no cap on floor
+ * count beyond memory.
+ *
+ * STATE_CAP guards against pathological inputs. If exceeded, throws — this
+ * means the level is too complex to validate at the current difficulty and
+ * the configs need retuning.
+ */
+function solvePaintingBFS(
+  grid: Grid,
+  size: number,
+  start: Coordinate,
+): SolveResult {
+  const STATE_CAP = 500_000;
+
+  const floorIndex = new Map<string, number>();
+  let idx = 0;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (x === startPosition.x && y === startPosition.y) {
-        continue;
+      if (grid[y]![x] === 'floor') {
+        floorIndex.set(`${x},${y}`, idx++);
       }
-      candidates.push({ x, y });
     }
   }
+  const totalFloors = idx;
+  if (totalFloors === 0) return { solved: false };
 
-  // Shuffle candidates using the seeded PRNG
-  const shuffled = shuffle(prng, candidates);
+  const startKey = `${start.x},${start.y}`;
+  const startBitIdx = floorIndex.get(startKey);
+  if (startBitIdx === undefined) return { solved: false };
 
-  // Place obstacles one by one, ensuring we maintain or improve solvability
-  let placedCount = 0;
-  let unreachableBefore = findUnreachableCells(cells, startPosition, size, size);
+  const startMask = 1n << BigInt(startBitIdx);
+  const goalMask = (1n << BigInt(totalFloors)) - 1n;
 
-  for (const pos of shuffled) {
-    if (placedCount >= targetObstacles) break;
+  if (startMask === goalMask) return { solved: true, length: 0 };
 
-    // Try placing obstacle
-    cells[pos.y]![pos.x] = 'obstacle';
-    const unreachableAfter = findUnreachableCells(cells, startPosition, size, size);
+  type State = { x: number; y: number; mask: bigint; depth: number };
+  const visited = new Set<string>();
+  visited.add(`${start.x},${start.y}|${startMask.toString(16)}`);
+  const queue: State[] = [{ x: start.x, y: start.y, mask: startMask, depth: 0 }];
 
-    // Accept if:
-    // 1. It doesn't make things worse (same or fewer unreachable cells)
-    // 2. OR it makes fewer cells unreachable (improves solvability)
-    if (unreachableAfter.length <= unreachableBefore.length) {
-      placedCount++;
-      unreachableBefore = unreachableAfter;
-
-      // If we achieved full solvability, we can continue adding obstacles
-      // only if they don't break it
-      if (unreachableAfter.length === 0) {
-        // From now on, only accept obstacles that maintain solvability
-        continue;
+  while (queue.length > 0) {
+    if (visited.size > STATE_CAP) {
+      throw new Error(
+        `Painting BFS exceeded ${STATE_CAP} states. Difficulty config produces levels too complex to validate.`,
+      );
+    }
+    const cur = queue.shift()!;
+    for (const d of DIRECTIONS) {
+      const slide = simulateSlide(grid, cur.x, cur.y, d, size, size);
+      if (slide.path.length === 1) continue;
+      let nextMask = cur.mask;
+      for (const cell of slide.path) {
+        const bit = 1n << BigInt(floorIndex.get(`${cell.x},${cell.y}`)!);
+        nextMask |= bit;
       }
-    } else {
-      // This obstacle made things worse, revert
-      cells[pos.y]![pos.x] = 'floor';
+      const nx = slide.destination.x;
+      const ny = slide.destination.y;
+      const nextDepth = cur.depth + 1;
+      if (nextMask === goalMask) {
+        return { solved: true, length: nextDepth };
+      }
+      const key = `${nx},${ny}|${nextMask.toString(16)}`;
+      if (!visited.has(key)) {
+        visited.add(key);
+        queue.push({ x: nx, y: ny, mask: nextMask, depth: nextDepth });
+      }
     }
   }
+  return { solved: false };
+}
 
-  // Final check - if not fully solvable, try adding strategic obstacles
-  // to create access to unreachable areas
-  let finalUnreachable = findUnreachableCells(cells, startPosition, size, size);
-  let iterations = 0;
-  const maxIterations = size * size; // Prevent infinite loops
-
-  while (finalUnreachable.length > 0 && iterations < maxIterations) {
-    iterations++;
-    let improved = false;
-
-    // For each unreachable cell, try placing an obstacle adjacent to it
-    // This creates a stopping point that might enable access
-    for (const unreachableCell of finalUnreachable) {
-      const adjacentPositions = [
-        { x: unreachableCell.x - 1, y: unreachableCell.y },
-        { x: unreachableCell.x + 1, y: unreachableCell.y },
-        { x: unreachableCell.x, y: unreachableCell.y - 1 },
-        { x: unreachableCell.x, y: unreachableCell.y + 1 },
-      ];
-
-      for (const adj of adjacentPositions) {
-        if (adj.x < 0 || adj.x >= size || adj.y < 0 || adj.y >= size) continue;
-        if (adj.x === startPosition.x && adj.y === startPosition.y) continue;
-        if (cells[adj.y]![adj.x] !== 'floor') continue;
-
-        // Try placing obstacle
-        cells[adj.y]![adj.x] = 'obstacle';
-        const newUnreachable = findUnreachableCells(cells, startPosition, size, size);
-
-        if (newUnreachable.length < finalUnreachable.length) {
-          // Improvement! Keep this obstacle
-          finalUnreachable = newUnreachable;
-          improved = true;
-          break;
-        } else {
-          // No improvement, revert
-          cells[adj.y]![adj.x] = 'floor';
-        }
-      }
-
-      if (improved) break;
-    }
-
-    // If no improvement possible with adjacent obstacles, try converting
-    // unreachable floor cells to obstacles (they can't be painted anyway)
-    if (!improved && finalUnreachable.length > 0) {
-      // Sort unreachable cells to make deterministic
-      finalUnreachable.sort((a, b) => a.y * size + a.x - (b.y * size + b.x));
-
-      const toConvert = finalUnreachable[0]!;
-      cells[toConvert.y]![toConvert.x] = 'obstacle';
-      finalUnreachable = findUnreachableCells(cells, startPosition, size, size);
-    }
+function freezeGrid(grid: Grid): ReadonlyArray<ReadonlyArray<CellType>> {
+  const frozen: ReadonlyArray<CellType>[] = [];
+  for (const row of grid) {
+    frozen.push(Object.freeze([...row]));
   }
-
-  return cells;
+  return Object.freeze(frozen);
 }
 
 /**
- * Generates a slide puzzle level deterministically from a seed.
+ * Generates a deterministic Maze Paint level for the given seed and difficulty.
  *
- * The algorithm uses constructive placement:
- * 1. Create a rectangular grid of floor cells
- * 2. Place obstacles one by one, only accepting placements that don't increase unreachable cells
- * 3. If any cells remain unreachable, convert them to obstacles or add strategic blockers
- *
- * This guarantees a solvable puzzle by construction.
- *
- * @param seed - A 64-character hex string used to seed the PRNG
- * @param size - The width and height of the grid (must be 2-100)
- * @param obstaclePercent - Target percentage of cells to be obstacles (0-100)
- * @returns A MazeState with a solvable slide puzzle
- * @throws Error if seed is invalid, size is out of bounds, or obstacle percent is invalid
+ * Algorithm: corridor-carve growth from the bottom-left start.
+ *   1. Fill grid with obstacles, set start to floor.
+ *   2. Repeatedly: pick a random reachable floor cell and a random direction.
+ *      Try to slide; if the slide moves, walk along it to grow the visited
+ *      set. If the slide is blocked, attempt to carve a new corridor of
+ *      random length 2..maxCarveLen in that direction (with probability
+ *      obstacleCarveProb). Each carve is validated via painting BFS; if the
+ *      resulting grid is not fully paintable, the carve is rolled back.
+ *   3. Stop when floorCount >= floorTargetMin or iteration cap reached.
+ *   4. Final invariant: the grid must be fully paintable (guaranteed by
+ *      construction since every accepted carve was validated).
+ *   5. Compute optimalSolutionLength via the same painting BFS.
  */
-export function generateMaze(
-  seed: Seed,
-  size: number,
-  obstaclePercent: number = 15
-): MazeState {
-  const normalizedSeed = validateAndNormalizeSeed(seed);
-  validateSize(size);
-
-  if (obstaclePercent < 0 || obstaclePercent > 100) {
-    throw new Error(`Obstacle percent must be 0-100, got ${obstaclePercent}`);
+export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
+  if (typeof seed !== 'string' || !isHexSeed(seed)) {
+    throw new Error(`Invalid seed: must be 64 hex characters, got ${typeof seed === 'string' ? `${seed.length} chars` : typeof seed}`);
+  }
+  const config = DIFFICULTY_CONFIGS[difficulty];
+  if (!config) {
+    throw new Error(`Invalid difficulty: ${String(difficulty)}`);
   }
 
-  // Start position is bottom-left
+  const { size, obstacleCarveProb, floorTargetMin, floorTargetMax } = config;
+  const prng = createPrng(seed);
+
+  const grid = makeGrid(size);
   const startPosition: Coordinate = { x: 0, y: size - 1 };
+  grid[startPosition.y]![startPosition.x] = 'floor';
 
-  // Generate the level (guaranteed solvable by construction)
-  const cells = generateLevel(normalizedSeed, size, obstaclePercent, startPosition);
+  // Floor list seeds the random walk. Always picked from cells reachable as
+  // stopping positions, which initially is just the start.
+  const floorList: Coordinate[] = [{ x: startPosition.x, y: startPosition.y }];
+  const floorSet = new Set<string>([`${startPosition.x},${startPosition.y}`]);
 
-  // Convert to readonly
-  const readonlyCells: ReadonlyArray<ReadonlyArray<CellType>> = cells.map(row =>
-    row.map(cell => cell)
-  );
+  const maxCarveLen = Math.max(2, Math.floor(size * 0.6));
+  const iterCap = size * size * 120;
+
+  const startTime = Date.now();
+  const BUDGET_MS = 2000;
+  const MAX_CONSECUTIVE_REJECTIONS = 200;
+  let consecutiveRejections = 0;
+
+  let iter = 0;
+  while (countFloors(grid) < floorTargetMin && iter < iterCap) {
+    iter++;
+    if (Date.now() - startTime > BUDGET_MS) {
+      throw new Error(`GeneratorBudgetExceeded: generation exceeded ${BUDGET_MS}ms for seed ${seed.slice(0, 12)}... at difficulty ${difficulty}`);
+    }
+    if (consecutiveRejections >= MAX_CONSECUTIVE_REJECTIONS) {
+      break;
+    }
+    const origin = floorList[randomInt(prng, 0, floorList.length)]!;
+    const d = DIRECTIONS[randomInt(prng, 0, 4)]!;
+    const allowCarve = prng() < obstacleCarveProb;
+
+    const slide = simulateSlide(grid, origin.x, origin.y, d, size, size);
+    if (slide.path.length > 1) continue;
+    if (!allowCarve) continue;
+
+    // Snapshot the cells we're about to carve so we can roll back if the
+    // resulting level is not fully paintable.
+    const len = 2 + randomInt(prng, 0, maxCarveLen - 1);
+    const { dx, dy } = dirVec(d);
+    const carved: Coordinate[] = [];
+    let cx = origin.x;
+    let cy = origin.y;
+    for (let step = 0; step < len; step++) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (!inBounds(nx, ny, size)) break;
+      const cell = grid[ny]![nx]!;
+      if (cell === 'floor') break;
+      carved.push({ x: nx, y: ny });
+      cx = nx;
+      cy = ny;
+    }
+    if (carved.length === 0) continue;
+
+    // Tentatively commit
+    for (const c of carved) grid[c.y]![c.x] = 'floor';
+
+    // Validate: the post-carve grid must be fully paintable from start.
+    // If not, roll back and try a different carve.
+    let validation: SolveResult;
+    try {
+      validation = solvePaintingBFS(grid, size, startPosition);
+    } catch {
+      // BFS state cap exceeded — roll back, the level is getting too complex
+      for (const c of carved) grid[c.y]![c.x] = 'obstacle';
+      consecutiveRejections++;
+      continue;
+    }
+    if (!validation.solved) {
+      for (const c of carved) grid[c.y]![c.x] = 'obstacle';
+      consecutiveRejections++;
+      continue;
+    }
+
+    // Carve accepted. Add the new floor cells via the actual slide path
+    // from origin in direction d so floorList only contains cells the ball
+    // actually passes through (which is the whole carved corridor).
+    const newSlide = simulateSlide(grid, origin.x, origin.y, d, size, size);
+    for (const cell of newSlide.path) {
+      const key = `${cell.x},${cell.y}`;
+      if (!floorSet.has(key)) {
+        floorSet.add(key);
+        floorList.push(cell);
+      }
+    }
+    consecutiveRejections = 0;
+
+    if (countFloors(grid) >= floorTargetMax) break;
+  }
+
+  // Final invariant: the grid must be fully paintable. Since every accepted
+  // carve was validated against this exact check, this should always hold.
+  const finalSolve = solvePaintingBFS(grid, size, startPosition);
+  if (!finalSolve.solved) {
+    throw new Error('Generator invariant violated: final grid is not fully paintable. This is a generator bug.');
+  }
 
   return {
-    seed: normalizedSeed,
+    seed,
     width: size,
     height: size,
-    cells: readonlyCells,
-    startPosition,
+    cells: freezeGrid(grid),
+    startPosition: Object.freeze({ ...startPosition }),
+    optimalSolutionLength: finalSolve.length,
   };
 }
