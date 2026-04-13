@@ -4,3 +4,4 @@ export * from './maze/generator.js';
 export * from './maze/painter.js';
 export * from './maze/progress.js';
 export * from './maze/validator.js';
+export * from './palette.js';
