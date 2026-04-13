@@ -31,32 +31,18 @@ export interface Coordinate {
  */
 export type CellType = 'floor' | 'obstacle' | 'void';
 
-/**
- * Configuration for each difficulty level.
- *
- * The generator uses a reverse random walk that carves floors through an
- * initially all-obstacle grid. obstacleCarveProb controls randomness,
- * floorTargetMin/Max control how many floor cells to aim for.
- */
 export interface DifficultyConfig {
-  /** Grid width and height (square grids) */
   readonly size: number;
-  /** Probability of carving through an obstacle during random walk (0-1) */
-  readonly obstacleCarveProb: number;
-  /** Minimum number of floor cells to generate */
+  readonly solutionMoveBudget: number;
+  readonly stopProb: number;
   readonly floorTargetMin: number;
-  /** Maximum number of floor cells to generate */
   readonly floorTargetMax: number;
 }
 
-/**
- * Maps difficulty to grid configuration.
- * Floor target ranges tuned for good puzzle variety.
- */
 export const DIFFICULTY_CONFIGS: Readonly<Record<Difficulty, DifficultyConfig>> = {
-  easy:   { size: 6,  obstacleCarveProb: 0.70, floorTargetMin: 14, floorTargetMax: 24 },
-  medium: { size: 9,  obstacleCarveProb: 0.65, floorTargetMin: 32, floorTargetMax: 50 },
-  hard:   { size: 12, obstacleCarveProb: 0.60, floorTargetMin: 55, floorTargetMax: 90 },
+  easy:   { size: 7,  solutionMoveBudget: 20, stopProb: 0.50, floorTargetMin: 22, floorTargetMax: 38 },
+  medium: { size: 10, solutionMoveBudget: 45, stopProb: 0.42, floorTargetMin: 50, floorTargetMax: 78 },
+  hard:   { size: 13, solutionMoveBudget: 80, stopProb: 0.35, floorTargetMin: 90, floorTargetMax: 130 },
 };
 
 /**
@@ -71,8 +57,16 @@ export interface MazeState {
   readonly cells: ReadonlyArray<ReadonlyArray<CellType>>;
   /** Starting position for the ball (always bottom-left floor cell). */
   readonly startPosition: Coordinate;
-  /** Minimum number of moves to paint all floor cells (BFS-computed). */
-  readonly optimalSolutionLength: number;
+  /**
+   * The number of slide moves in the solution the generator recorded while
+   * constructing this level. Every level is solvable in exactly this many moves
+   * via the recorded sequence (not exposed — solution remains server-side).
+   *
+   * Used by anti-cheat as the minimum plausible move count. Human players
+   * may find alternate solutions at different lengths, including shorter ones;
+   * the bound is a solid lower-tier gate, not a provable global minimum.
+   */
+  readonly minimumMoveLowerBound: number;
 }
 
 /**

@@ -38,7 +38,7 @@ function createTestMaze(): MazeState {
     height: 6,
     cells,
     startPosition: { x: 0, y: 5 },
-    optimalSolutionLength: 0,
+    minimumMoveLowerBound: 0,
   };
 }
 
@@ -61,7 +61,7 @@ function createCorridorMaze(length: number): MazeState {
     height: 1,
     cells,
     startPosition: { x: 0, y: 0 },
-    optimalSolutionLength: 0,
+    minimumMoveLowerBound: 0,
   };
 }
 
@@ -140,7 +140,7 @@ describe('applyMove', () => {
         height: 3,
         cells,
         startPosition: { x: 0, y: 2 },
-        optimalSolutionLength: 0,
+        minimumMoveLowerBound: 0,
       };
 
       const state = createInitialGameState(maze);
@@ -204,7 +204,7 @@ describe('applyMove', () => {
         height: 2,
         cells,
         startPosition: { x: 0, y: 1 },
-        optimalSolutionLength: 0,
+        minimumMoveLowerBound: 0,
       };
 
       const state = createInitialGameState(maze);

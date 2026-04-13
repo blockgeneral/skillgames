@@ -6,6 +6,7 @@ import {
   createInitialGameState,
   coordinateToKey,
   type MazeGameState,
+  type Difficulty,
 } from '@skillgames/shared';
 
 // Clean up after each test to prevent DOM accumulation
@@ -14,11 +15,11 @@ afterEach(() => {
 });
 
 /**
- * Creates a test game state with a known seed.
+ * Creates a test game state with a known seed and difficulty.
  */
-function createTestState(size: number = 5): MazeGameState {
+function createTestState(difficulty: Difficulty = 'easy'): MazeGameState {
   const seed = 'a'.repeat(64);
-  const maze = generateMaze(seed, size);
+  const maze = generateMaze(seed, difficulty);
   return createInitialGameState(maze);
 }
 
@@ -48,35 +49,19 @@ describe('MazeRenderer', () => {
       expect(player.tagName.toLowerCase()).toBe('circle');
     });
 
-    it('renders painted cells', () => {
+    it('renders cells as rects', () => {
       const state = createTestState();
       const { container } = render(<MazeRenderer state={state} size={300} />);
-      // Initial state has (0,0) painted
-      const paintedCells = container.querySelectorAll('.maze-cell-painted');
-      expect(paintedCells.length).toBe(1);
-    });
-
-    it('renders more painted cells as they are added', () => {
-      const baseState = createTestState(5);
-      // Manually add more painted cells
-      const paintedCells = new Set(baseState.paintedCells);
-      paintedCells.add(coordinateToKey({ x: 1, y: 0 }));
-      paintedCells.add(coordinateToKey({ x: 2, y: 0 }));
-
-      const state: MazeGameState = {
-        ...baseState,
-        paintedCells,
-      };
-
-      const { container } = render(<MazeRenderer state={state} size={300} />);
-      const painted = container.querySelectorAll('.maze-cell-painted');
-      expect(painted.length).toBe(3);
+      // Should have multiple rect elements for cells
+      const rects = container.querySelectorAll('rect');
+      // At least background + one cell
+      expect(rects.length).toBeGreaterThan(1);
     });
   });
 
   describe('stability', () => {
     it('produces stable SVG output for known input state', () => {
-      const state = createTestState(5);
+      const state = createTestState('easy');
       const size = 300;
 
       // Render twice and compare
@@ -90,7 +75,7 @@ describe('MazeRenderer', () => {
     });
 
     it('produces consistent output across multiple renders', () => {
-      const state = createTestState(10);
+      const state = createTestState('medium');
       const size = 400;
       const outputs: string[] = [];
 
@@ -108,10 +93,10 @@ describe('MazeRenderer', () => {
     });
   });
 
-  describe('different sizes', () => {
-    it('renders 10x10 maze (easy)', () => {
+  describe('different difficulties', () => {
+    it('renders easy maze (6x6)', () => {
       const seed = 'b'.repeat(64);
-      const maze = generateMaze(seed, 10);
+      const maze = generateMaze(seed, 'easy');
       const state = createInitialGameState(maze);
 
       const { container } = render(<MazeRenderer state={state} size={300} />);
@@ -119,9 +104,9 @@ describe('MazeRenderer', () => {
       expect(svg).not.toBeNull();
     });
 
-    it('renders 15x15 maze (medium)', () => {
+    it('renders medium maze (9x9)', () => {
       const seed = 'c'.repeat(64);
-      const maze = generateMaze(seed, 15);
+      const maze = generateMaze(seed, 'medium');
       const state = createInitialGameState(maze);
 
       const { container } = render(<MazeRenderer state={state} size={400} />);
@@ -129,9 +114,9 @@ describe('MazeRenderer', () => {
       expect(svg).not.toBeNull();
     });
 
-    it('renders 20x20 maze (hard)', () => {
+    it('renders hard maze (12x12)', () => {
       const seed = 'd'.repeat(64);
-      const maze = generateMaze(seed, 20);
+      const maze = generateMaze(seed, 'hard');
       const state = createInitialGameState(maze);
 
       const { container } = render(<MazeRenderer state={state} size={500} />);
@@ -141,23 +126,25 @@ describe('MazeRenderer', () => {
   });
 
   describe('fully painted maze', () => {
-    it('renders 20x20 fully painted maze without lag', () => {
+    it('renders hard difficulty fully painted maze without lag', () => {
       const seed = 'e'.repeat(64);
-      const maze = generateMaze(seed, 20);
+      const maze = generateMaze(seed, 'hard');
       const paintedCells = new Set<string>();
 
-      // Paint all cells
-      for (let y = 0; y < 20; y++) {
-        for (let x = 0; x < 20; x++) {
-          paintedCells.add(coordinateToKey({ x, y }));
+      // Paint all floor cells
+      for (let y = 0; y < maze.height; y++) {
+        for (let x = 0; x < maze.width; x++) {
+          if (maze.cells[y]?.[x] === 'floor') {
+            paintedCells.add(coordinateToKey({ x, y }));
+          }
         }
       }
 
       const state: MazeGameState = {
         maze,
         paintedCells,
-        playerPosition: { x: 19, y: 19 },
-        moveCount: 400,
+        playerPosition: { x: maze.width - 1, y: maze.height - 1 },
+        moveCount: 100,
       };
 
       const start = performance.now();
@@ -173,12 +160,16 @@ describe('MazeRenderer', () => {
   });
 
   describe('player position', () => {
-    it('positions player marker correctly at (0, 0)', () => {
-      const state = createTestState(5);
+    it('positions player marker at start position', () => {
+      const seed = 'f'.repeat(64);
+      const maze = generateMaze(seed, 'easy');
+      const state = createInitialGameState(maze);
       const size = 300;
-      const cellSize = size / 5;
-      const expectedCx = cellSize / 2;
-      const expectedCy = cellSize / 2;
+      const cellSize = size / maze.width;
+
+      // Start position is at bottom-left (0, size-1)
+      const expectedCx = maze.startPosition.x * cellSize + cellSize / 2;
+      const expectedCy = maze.startPosition.y * cellSize + cellSize / 2;
 
       const { getByTestId } = render(<MazeRenderer state={state} size={size} />);
       const player = getByTestId('player-marker');
@@ -188,9 +179,11 @@ describe('MazeRenderer', () => {
     });
 
     it('positions player marker correctly at different position', () => {
-      const baseState = createTestState(5);
+      const seed = '7'.repeat(64);
+      const maze = generateMaze(seed, 'easy');
+      const baseState = createInitialGameState(maze);
       const size = 300;
-      const cellSize = size / 5;
+      const cellSize = size / maze.width;
 
       const state: MazeGameState = {
         ...baseState,

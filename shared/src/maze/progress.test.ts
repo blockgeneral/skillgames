@@ -24,7 +24,7 @@ function createAllFloorMaze(size: number): MazeState {
     height: size,
     cells,
     startPosition: { x: 0, y: size - 1 },
-    optimalSolutionLength: 0,
+    minimumMoveLowerBound: 0,
   };
 }
 
@@ -60,7 +60,7 @@ function createMazeWithObstacles(size: number, obstacleCount: number): MazeState
     height: size,
     cells,
     startPosition: { x: 0, y: size - 1 },
-    optimalSolutionLength: 0,
+    minimumMoveLowerBound: 0,
   };
 }
 

@@ -3,6 +3,7 @@ node_modules
 
 # Build output
 dist
+client/dist
 
 # Test coverage
 coverage
@@ -21,3 +22,16 @@ coverage
 .vscode/*
 !.vscode/settings.json
 .idea
+
+# TypeScript build info
+**/tsconfig.tsbuildinfo
+**/tsconfig.*.tsbuildinfo
+**/*.d.ts.map
+
+# Vite/Vitest compiled configs
+**/vite.config.js
+**/vitest.config.js
+**/vite.config.d.ts
+**/vitest.config.d.ts
+**/vite.config.js.map
+**/vitest.config.js.map

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button } from '@telegram-apps/telegram-ui';
 import type { Difficulty } from '@skillgames/shared';
+import { DIFFICULTY_CONFIGS } from '@skillgames/shared';
 
 /**
  * Props for the HomeScreen component.
@@ -9,10 +9,10 @@ export interface HomeScreenProps {
   onStartGame: (difficulty: Difficulty) => void;
 }
 
-const DIFFICULTY_OPTIONS: Array<{ value: Difficulty; label: string; size: string }> = [
-  { value: 'easy', label: 'Easy', size: '10x10' },
-  { value: 'medium', label: 'Medium', size: '15x15' },
-  { value: 'hard', label: 'Hard', size: '20x20' },
+const DIFFICULTY_OPTIONS: Array<{ value: Difficulty; label: string }> = [
+  { value: 'easy', label: 'Easy' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'hard', label: 'Hard' },
 ];
 
 /**
@@ -26,118 +26,59 @@ export function HomeScreen({ onStartGame }: HomeScreenProps): JSX.Element {
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.content}>
-        <h1 style={styles.title}>Maze Paint</h1>
-        <p style={styles.subtitle}>Paint the maze before time runs out!</p>
+    <div className="flex flex-col items-center justify-center min-h-screen p-5 bg-slate-900">
+      <div className="flex flex-col items-center gap-6 max-w-md w-full">
+        <h1 className="text-3xl font-bold text-white text-center">
+          Maze Paint
+        </h1>
+        <p className="text-base text-slate-400 text-center">
+          Paint the maze before time runs out!
+        </p>
 
-        <div style={styles.difficultySection}>
-          <p style={styles.label}>Difficulty</p>
-          <div style={styles.buttonGroup}>
-            {DIFFICULTY_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setDifficulty(opt.value)}
-                style={{
-                  ...styles.difficultyButton,
-                  ...(difficulty === opt.value ? styles.difficultyButtonSelected : {}),
-                }}
-              >
-                <span style={styles.difficultyLabel}>{opt.label}</span>
-                <span style={styles.difficultySize}>{opt.size}</span>
-              </button>
-            ))}
+        <div className="flex flex-col items-center gap-3 w-full">
+          <p className="text-sm text-slate-400">Difficulty</p>
+          <div className="flex gap-2 w-full">
+            {DIFFICULTY_OPTIONS.map((opt) => {
+              const config = DIFFICULTY_CONFIGS[opt.value];
+              const isSelected = difficulty === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => setDifficulty(opt.value)}
+                  className={`
+                    flex-1 flex flex-col items-center gap-1 py-3 px-2
+                    border-2 rounded-xl cursor-pointer transition-all
+                    ${
+                      isSelected
+                        ? 'border-emerald-400 bg-emerald-400/15'
+                        : 'border-slate-600 bg-slate-800 hover:border-slate-500'
+                    }
+                  `}
+                >
+                  <span className="text-base font-semibold text-white">
+                    {opt.label}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {config.size}x{config.size}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <Button
-          size="l"
-          stretched
+        <button
           onClick={handlePlay}
-          style={styles.playButton}
+          className="
+            w-full mt-4 py-4 px-6 rounded-xl
+            bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600
+            text-white font-bold text-lg
+            transition-colors
+          "
         >
           Play
-        </Button>
+        </button>
       </div>
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '100vh',
-    padding: '20px',
-    backgroundColor: 'var(--tgui--bg_color, #181818)',
-  },
-  content: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '24px',
-    maxWidth: '400px',
-    width: '100%',
-  },
-  title: {
-    fontSize: '32px',
-    fontWeight: '700',
-    color: 'var(--tgui--text_color, #ffffff)',
-    margin: 0,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: '16px',
-    color: 'var(--tgui--hint_color, #aaaaaa)',
-    margin: 0,
-    textAlign: 'center',
-  },
-  difficultySection: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '12px',
-    width: '100%',
-  },
-  label: {
-    fontSize: '14px',
-    color: 'var(--tgui--hint_color, #aaaaaa)',
-    margin: 0,
-  },
-  buttonGroup: {
-    display: 'flex',
-    gap: '8px',
-    width: '100%',
-  },
-  difficultyButton: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '4px',
-    padding: '12px 8px',
-    border: '2px solid var(--tgui--hint_color, #444)',
-    borderRadius: '12px',
-    backgroundColor: 'var(--tgui--secondary_bg_color, #212121)',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  difficultyButtonSelected: {
-    borderColor: 'var(--tgui--accent_text_color, #8774e1)',
-    backgroundColor: 'rgba(135, 116, 225, 0.15)',
-  },
-  difficultyLabel: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: 'var(--tgui--text_color, #ffffff)',
-  },
-  difficultySize: {
-    fontSize: '12px',
-    color: 'var(--tgui--hint_color, #aaaaaa)',
-  },
-  playButton: {
-    marginTop: '16px',
-  },
-};

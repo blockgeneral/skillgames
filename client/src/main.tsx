@@ -1,13 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import '@telegram-apps/telegram-ui/dist/styles.css';
+import './index.css';
 import { App } from './App.js';
-
-// Initialize Telegram WebApp shim in development
-if (import.meta.env.DEV) {
-  const { initTelegramShim } = await import('./lib/telegram-shim.js');
-  initTelegramShim();
-}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

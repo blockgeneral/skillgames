@@ -1,5 +1,4 @@
-import { useReducer, useCallback, useState } from 'react';
-import { AppRoot } from '@telegram-apps/telegram-ui';
+import { useReducer, useCallback, useState, useEffect } from 'react';
 import type { Difficulty } from '@skillgames/shared';
 import { HomeScreen } from './screens/HomeScreen.js';
 import { GameScreen } from './screens/GameScreen.js';
@@ -36,33 +35,44 @@ export function App(): JSX.Element {
     dispatch({ type: 'TICK' });
   }, []);
 
+  const handleTogglePause = useCallback((): void => {
+    dispatch({ type: 'TOGGLE_PAUSE' });
+  }, []);
+
   const handlePlayAgain = useCallback((): void => {
     setScreen('home');
   }, []);
 
+  const handleSameMaze = useCallback((): void => {
+    dispatch({ type: 'RESET_SAME_MAZE' });
+    setScreen('game');
+  }, []);
+
   // Transition to result screen when game ends
-  if (screen === 'game' && gameState.status !== 'playing') {
-    setScreen('result');
-  }
+  useEffect(() => {
+    if (screen === 'game' && gameState.status !== 'playing') {
+      setScreen('result');
+    }
+  }, [screen, gameState.status]);
 
   return (
-    <AppRoot>
-      {screen === 'home' && (
-        <HomeScreen onStartGame={handleStartGame} />
-      )}
+    <>
+      {screen === 'home' && <HomeScreen onStartGame={handleStartGame} />}
       {screen === 'game' && (
         <GameScreen
           state={gameState}
           onMove={handleMove}
           onTick={handleTick}
+          onTogglePause={handleTogglePause}
         />
       )}
       {screen === 'result' && (
         <ResultScreen
           state={gameState}
           onPlayAgain={handlePlayAgain}
+          onSameMaze={handleSameMaze}
         />
       )}
-    </AppRoot>
+    </>
   );
 }

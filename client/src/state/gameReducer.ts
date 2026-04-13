@@ -1,8 +1,10 @@
 import {
   type MazeGameState,
+  type MazeState,
   type Difficulty,
+  type Direction,
   type PaintMove,
-  DIFFICULTY_SIZES,
+  type Seed,
   generateMaze,
   createInitialGameState,
   applyMove,
@@ -11,10 +13,7 @@ import {
 } from '@skillgames/shared';
 import { generateSeed } from '../lib/seed.js';
 
-/**
- * Direction of player movement.
- */
-export type Direction = 'up' | 'down' | 'left' | 'right';
+export type { Direction };
 
 /**
  * Status of the current game.
@@ -27,6 +26,8 @@ export type GameStatus = 'playing' | 'won' | 'timeout';
 export interface GameState {
   /** The maze game state from /shared */
   readonly mazeState: MazeGameState;
+  /** The seed used to generate this maze */
+  readonly seed: Seed;
   /** Elapsed time in seconds */
   readonly elapsedSeconds: number;
   /** Maximum time allowed in seconds */
@@ -37,6 +38,8 @@ export interface GameState {
   readonly difficulty: Difficulty;
   /** Calculated progress percentage */
   readonly progress: number;
+  /** Whether game is paused */
+  readonly paused: boolean;
 }
 
 /**
@@ -45,41 +48,39 @@ export interface GameState {
 export type GameAction =
   | { type: 'MOVE'; direction: Direction }
   | { type: 'TICK' }
-  | { type: 'RESET'; difficulty: Difficulty };
+  | { type: 'RESET'; difficulty: Difficulty }
+  | { type: 'RESET_SAME_MAZE' }
+  | { type: 'TOGGLE_PAUSE' };
+
+/**
+ * Creates a game state from a given maze.
+ */
+function createGameStateFromMaze(
+  maze: MazeState,
+  seed: Seed,
+  difficulty: Difficulty
+): GameState {
+  const mazeState = createInitialGameState(maze);
+
+  return {
+    mazeState,
+    seed,
+    elapsedSeconds: 0,
+    maxSeconds: 60,
+    status: 'playing',
+    difficulty,
+    progress: calculateProgress(mazeState),
+    paused: false,
+  };
+}
 
 /**
  * Creates initial game state for a given difficulty.
  */
 export function createGameState(difficulty: Difficulty): GameState {
   const seed = generateSeed();
-  const size = DIFFICULTY_SIZES[difficulty];
-  const maze = generateMaze(seed, size);
-  const mazeState = createInitialGameState(maze);
-
-  return {
-    mazeState,
-    elapsedSeconds: 0,
-    maxSeconds: 60,
-    status: 'playing',
-    difficulty,
-    progress: calculateProgress(mazeState),
-  };
-}
-
-/**
- * Converts a direction to dx, dy offsets.
- */
-function directionToOffset(direction: Direction): { dx: number; dy: number } {
-  switch (direction) {
-    case 'up':
-      return { dx: 0, dy: -1 };
-    case 'down':
-      return { dx: 0, dy: 1 };
-    case 'left':
-      return { dx: -1, dy: 0 };
-    case 'right':
-      return { dx: 1, dy: 0 };
-  }
+  const maze = generateMaze(seed, difficulty);
+  return createGameStateFromMaze(maze, seed, difficulty);
 }
 
 /**
@@ -89,31 +90,21 @@ function directionToOffset(direction: Direction): { dx: number; dy: number } {
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'MOVE': {
-      // Don't allow moves if game is over
-      if (state.status !== 'playing') {
+      // Don't allow moves if game is over or paused
+      if (state.status !== 'playing' || state.paused) {
         return state;
       }
 
-      const { dx, dy } = directionToOffset(action.direction);
-      const { playerPosition } = state.mazeState;
-      const from = playerPosition;
-      const to = {
-        x: playerPosition.x + dx,
-        y: playerPosition.y + dy,
-      };
-
       const move: PaintMove = {
-        from,
-        to,
+        direction: action.direction,
         timestamp: state.elapsedSeconds * 1000,
       };
 
-      // Try to apply the move; if illegal, silently ignore
-      let newMazeState: MazeGameState;
-      try {
-        newMazeState = applyMove(state.mazeState, move);
-      } catch {
-        // Illegal move (wall, out of bounds, etc.) - ignore
+      // Apply the move; if ball can't move in that direction, returns unchanged state
+      const newMazeState = applyMove(state.mazeState, move);
+
+      // If state didn't change, return as-is
+      if (newMazeState === state.mazeState) {
         return state;
       }
 
@@ -129,8 +120,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'TICK': {
-      // Don't tick if game is over
-      if (state.status !== 'playing') {
+      // Don't tick if game is over or paused
+      if (state.status !== 'playing' || state.paused) {
         return state;
       }
 
@@ -146,6 +137,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'RESET': {
       return createGameState(action.difficulty);
+    }
+
+    case 'RESET_SAME_MAZE': {
+      // Regenerate the same maze from the same seed
+      const maze = generateMaze(state.seed, state.difficulty);
+      return createGameStateFromMaze(maze, state.seed, state.difficulty);
+    }
+
+    case 'TOGGLE_PAUSE': {
+      // Only allow pause while playing
+      if (state.status !== 'playing') {
+        return state;
+      }
+      return {
+        ...state,
+        paused: !state.paused,
+      };
     }
 
     default:
