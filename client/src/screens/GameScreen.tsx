@@ -49,6 +49,18 @@ const MIN_SWIPE_DISTANCE = 30;
 const INPUT_THROTTLE_MS = 50;
 
 /**
+ * Vertical viewport budget reserved for non-maze UI chrome: header (timer +
+ * progress + pause button), direction pad, hint text, and outer padding.
+ * Tune if the surrounding UI changes.
+ */
+const NON_MAZE_UI_BUDGET_PX = 320;
+
+/**
+ * Horizontal viewport padding reserved around the maze.
+ */
+const HORIZONTAL_PADDING_PX = 24;
+
+/**
  * Game screen showing the maze, progress, and timer.
  * Handles keyboard and touch input with 50ms throttling.
  */
@@ -62,25 +74,33 @@ export function GameScreen({
   const lastMoveTimeRef = useRef<number>(0);
   const [mazeSize, setMazeSize] = useState(0);
 
-  // Calculate maze size based on viewport
-  const calculateMazeSize = useCallback((): number => {
-    const padding = 32;
-    const headerHeight = 80;
-    const footerHeight = 120;
-    const maxWidth = window.innerWidth - padding;
-    const maxHeight = window.innerHeight - headerHeight - footerHeight - padding;
-    return Math.min(maxWidth, maxHeight, Math.min(window.innerWidth, window.innerHeight) * 0.9);
+  const cols = state.mazeState.maze.width;
+  const rows = state.mazeState.maze.height;
+
+  // Calculate maze width in pixels so the full grid fits the viewport for
+  // any maze dimensions. cellSize is derived from the tighter of the two
+  // viewport constraints; svgHeight in MazeRenderer adds WALL_H = cellSize *
+  // 0.25, so the effective vertical budget is (rows + 0.25) cells.
+  const calculateMazeSize = useCallback((gridCols: number, gridRows: number): number => {
+    const availableWidth = Math.max(0, window.innerWidth - HORIZONTAL_PADDING_PX);
+    const availableHeight = Math.max(0, window.innerHeight - NON_MAZE_UI_BUDGET_PX);
+    const effectiveRows = gridRows + 0.25;
+    const cellSize = Math.max(
+      1,
+      Math.floor(Math.min(availableWidth / gridCols, availableHeight / effectiveRows))
+    );
+    return cellSize * gridCols;
   }, []);
 
-  // Initialize and update maze size on resize
+  // Initialize and update maze size on resize or when maze dimensions change
   useEffect(() => {
-    setMazeSize(calculateMazeSize());
+    setMazeSize(calculateMazeSize(cols, rows));
     const handleResize = (): void => {
-      setMazeSize(calculateMazeSize());
+      setMazeSize(calculateMazeSize(cols, rows));
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [calculateMazeSize]);
+  }, [calculateMazeSize, cols, rows]);
 
   // Throttled move handler
   const handleThrottledMove = useCallback(
@@ -218,7 +238,7 @@ export function GameScreen({
       {/* Maze */}
       <div className="flex justify-center items-center flex-1 relative">
         {mazeSize > 0 && (
-          <MazeRenderer state={state.mazeState} size={mazeSize} />
+          <MazeRenderer state={state.mazeState} size={mazeSize} lastSlidePath={state.lastSlidePath} />
         )}
 
         {/* Pause overlay */}

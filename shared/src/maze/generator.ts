@@ -19,8 +19,8 @@ function isOpposite(a: Dir, b: Dir): boolean {
          (a === 'left' && b === 'right') || (a === 'right' && b === 'left');
 }
 
-function inBounds(x: number, y: number, size: number): boolean {
-  return x >= 0 && x < size && y >= 0 && y < size;
+function inBounds(x: number, y: number, width: number, height: number): boolean {
+  return x >= 0 && x < width && y >= 0 && y < height;
 }
 
 function isHexSeed(seed: string): boolean {
@@ -29,11 +29,11 @@ function isHexSeed(seed: string): boolean {
 
 type Grid = CellType[][];
 
-function makeObstacleGrid(size: number): Grid {
+function makeObstacleGrid(width: number, height: number): Grid {
   const g: Grid = [];
-  for (let y = 0; y < size; y++) {
+  for (let y = 0; y < height; y++) {
     const row: CellType[] = [];
-    for (let x = 0; x < size; x++) row.push('obstacle');
+    for (let x = 0; x < width; x++) row.push('obstacle');
     g.push(row);
   }
   return g;
@@ -51,42 +51,42 @@ function freezeGrid(g: Grid): ReadonlyArray<ReadonlyArray<CellType>> {
   return Object.freeze(rows);
 }
 
-/**
- * Derive a deterministic sub-PRNG for a retry attempt.
- * Same (seed, attemptIndex) always yields the same PRNG.
- */
 function deriveSubPrng(seed: Seed, attemptIndex: number): () => number {
   return createPrng(`${seed}:${attemptIndex}`);
 }
 
-/**
- * Single attempt at generating a level. Returns the grid, start position,
- * and recorded solution moves. Does not validate constraints — that's done
- * by the caller.
- *
- * Algorithm: place a virtual ball at bottom-left. For up to solutionMoveBudget
- * moves, choose a direction weighted by (new cells it would carve × 8 + 2),
- * with opposite-of-last-direction heavily downweighted. Slide in that
- * direction, carving obstacles into floor, until we hit a locked stopper, a
- * randomly-decided new stopper (probability stopProb per obstacle encountered),
- * or the grid edge. Any cell that stops a slide becomes LOCKED — future moves
- * cannot carve it, even if they approach from a different angle. This lock
- * preserves slide physics across the entire move sequence, making the recorded
- * sequence a valid solution on the final grid.
- */
+function pickDimensions(seed: Seed, cfg: { widthMin: number; widthMax: number; heightMin: number; heightMax: number }): { width: number; height: number } {
+  const prng = createPrng(`${seed}:dims`);
+  const width  = cfg.widthMin  + Math.floor(prng() * (cfg.widthMax  - cfg.widthMin  + 1));
+  const height = cfg.heightMin + Math.floor(prng() * (cfg.heightMax - cfg.heightMin + 1));
+  return { width, height };
+}
+
 function generateAttempt(
   seed: Seed,
-  size: number,
+  width: number,
+  height: number,
   moveBudget: number,
   stopProb: number,
   floorMax: number,
   attemptIndex: number,
 ): { grid: Grid; start: Coordinate; recorded: Dir[] } {
   const primary = deriveSubPrng(seed, attemptIndex);
-  const grid = makeObstacleGrid(size);
+  const grid = makeObstacleGrid(width, height);
   const locked = new Set<string>();
-  const start: Coordinate = { x: 0, y: size - 1 };
+  const start: Coordinate = { x: 1, y: height - 2 };
   grid[start.y]![start.x] = 'floor';
+
+  // Lock the outer perimeter as permanent obstacles.
+  for (let x = 0; x < width; x++) {
+    locked.add(`${x},0`);
+    locked.add(`${x},${height - 1}`);
+  }
+  for (let y = 0; y < height; y++) {
+    locked.add(`0,${y}`);
+    locked.add(`${width - 1},${y}`);
+  }
+
   let bx = start.x, by = start.y;
   let lastDir: Dir | null = null;
   const recorded: Dir[] = [];
@@ -94,9 +94,6 @@ function generateAttempt(
   for (let mv = 0; mv < moveBudget; mv++) {
     if (countFloors(grid) >= floorMax) break;
 
-    // Score candidate directions by the number of new cells each would carve.
-    // Each direction uses its own deterministic sub-PRNG for the stop-coin
-    // flips so that the score-simulation and the commit-simulation match.
     const scored: { dir: Dir; nc: number }[] = [];
     for (const d of DIRECTIONS) {
       const { dx, dy } = dirVec(d);
@@ -106,7 +103,7 @@ function generateAttempt(
       let moved = false;
       while (true) {
         const nx = x + dx, ny = y + dy;
-        if (!inBounds(nx, ny, size)) break;
+        if (!inBounds(nx, ny, width, height)) break;
         if (grid[ny]![nx] === 'floor') { x = nx; y = ny; moved = true; continue; }
         const k = `${nx},${ny}`;
         if (locked.has(k)) break;
@@ -131,14 +128,12 @@ function generateAttempt(
     }
     const chosen = scored[idx]!.dir;
 
-    // Commit: carve using a PRNG seeded identically to the scoring pass for
-    // this direction, so the stop decisions match.
     const commitRand = createPrng(`${seed}:${attemptIndex}:${mv}:${chosen}`);
     const { dx, dy } = dirVec(chosen);
     let x = bx, y = by;
     while (true) {
       const nx = x + dx, ny = y + dy;
-      if (!inBounds(nx, ny, size)) break;
+      if (!inBounds(nx, ny, width, height)) break;
       if (grid[ny]![nx] === 'floor') { x = nx; y = ny; continue; }
       const k = `${nx},${ny}`;
       if (locked.has(k)) break;
@@ -154,12 +149,7 @@ function generateAttempt(
   return { grid, start, recorded };
 }
 
-/**
- * Replay the recorded move sequence on the final grid. Returns the set of
- * painted cells. Used to verify that the recorded solution actually paints
- * every floor on the final grid — this is the solvability gate.
- */
-function replayPainted(grid: Grid, size: number, start: Coordinate, moves: Dir[]): Set<string> {
+function replayPainted(grid: Grid, width: number, height: number, start: Coordinate, moves: Dir[]): Set<string> {
   const painted = new Set<string>([`${start.x},${start.y}`]);
   let cx = start.x, cy = start.y;
   for (const d of moves) {
@@ -168,7 +158,7 @@ function replayPainted(grid: Grid, size: number, start: Coordinate, moves: Dir[]
     painted.add(`${x},${y}`);
     while (true) {
       const nx = x + dx, ny = y + dy;
-      if (!inBounds(nx, ny, size)) break;
+      if (!inBounds(nx, ny, width, height)) break;
       if (grid[ny]![nx] !== 'floor') break;
       x = nx; y = ny;
       painted.add(`${x},${y}`);
@@ -178,9 +168,9 @@ function replayPainted(grid: Grid, size: number, start: Coordinate, moves: Dir[]
   return painted;
 }
 
-function allFloorsPainted(grid: Grid, size: number, painted: Set<string>): boolean {
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+function allFloorsPainted(grid: Grid, width: number, height: number, painted: Set<string>): boolean {
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       if (grid[y]![x] === 'floor' && !painted.has(`${x},${y}`)) return false;
     }
   }
@@ -197,22 +187,28 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
   const config = DIFFICULTY_CONFIGS[difficulty];
   if (!config) throw new Error(`Invalid difficulty: ${String(difficulty)}`);
 
-  const { size, solutionMoveBudget, stopProb, floorTargetMin, floorTargetMax } = config;
+  const { width, height } = pickDimensions(seed, config);
+  const carveable = (width - 2) * (height - 2) + 1;
+  const floorTargetMin = Math.floor(carveable * 0.70);
+  const floorTargetMax = Math.floor(carveable * 0.80);
+  const solutionMoveBudget = Math.floor(floorTargetMax * 1.2);
+  const stopProb = difficulty === 'easy' ? 0.20 : difficulty === 'medium' ? 0.17 : 0.13;
+
   const startTime = Date.now();
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (Date.now() - startTime > BUDGET_MS) {
       throw new Error(`GeneratorBudgetExceeded: exceeded ${BUDGET_MS}ms for seed ${seed.slice(0, 12)}... at ${difficulty}`);
     }
-    const r = generateAttempt(seed, size, solutionMoveBudget, stopProb, floorTargetMax, attempt);
+    const r = generateAttempt(seed, width, height, solutionMoveBudget, stopProb, floorTargetMax, attempt);
     const floors = countFloors(r.grid);
     if (floors < floorTargetMin || floors > floorTargetMax) continue;
-    const painted = replayPainted(r.grid, size, r.start, r.recorded);
-    if (!allFloorsPainted(r.grid, size, painted)) continue;
+    const painted = replayPainted(r.grid, width, height, r.start, r.recorded);
+    if (!allFloorsPainted(r.grid, width, height, painted)) continue;
     return {
       seed,
-      width: size,
-      height: size,
+      width,
+      height,
       cells: freezeGrid(r.grid),
       startPosition: Object.freeze({ ...r.start }),
       minimumMoveLowerBound: r.recorded.length,

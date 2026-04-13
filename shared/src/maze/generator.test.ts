@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateMaze } from './generator.js';
 import { simulateSlide } from './painter.js';
-import { DIFFICULTY_CONFIGS } from '../types.js';
 import type { Difficulty, MazeState, Coordinate, CellType } from '../types.js';
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
@@ -12,7 +11,8 @@ const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
  */
 function reachableFloorsViaSlides(
   cells: ReadonlyArray<ReadonlyArray<CellType>>,
-  size: number,
+  width: number,
+  height: number,
   start: Coordinate,
 ): Set<string> {
   const reached = new Set<string>([`${start.x},${start.y}`]);
@@ -20,7 +20,7 @@ function reachableFloorsViaSlides(
   while (queue.length > 0) {
     const node = queue.shift()!;
     for (const dir of ['up', 'down', 'left', 'right'] as const) {
-      const slide = simulateSlide(cells, node.x, node.y, dir, size, size);
+      const slide = simulateSlide(cells, node.x, node.y, dir, width, height);
       for (const cell of slide.path) {
         const key = `${cell.x},${cell.y}`;
         if (!reached.has(key)) {
@@ -39,9 +39,6 @@ function countFloors(maze: MazeState): number {
   return n;
 }
 
-/**
- * Try to generate a maze; return it on success, null on constraint/budget error.
- */
 function tryGenerate(seed: string, difficulty: Difficulty): MazeState | null {
   try {
     return generateMaze(seed, difficulty);
@@ -63,12 +60,14 @@ describe('generateMaze — determinism', () => {
     }
   });
 
-  it('is deterministic for every difficulty', () => {
+  it('is deterministic for every difficulty (same seed → same width, height, grid)', () => {
     const seed = 'b'.repeat(64);
     for (const d of DIFFICULTIES) {
-      const a = JSON.stringify(generateMaze(seed, d));
-      const b = JSON.stringify(generateMaze(seed, d));
-      expect(a).toBe(b);
+      const a = generateMaze(seed, d);
+      const b = generateMaze(seed, d);
+      expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+      expect(a.width).toBe(b.width);
+      expect(a.height).toBe(b.height);
     }
   });
 });
@@ -90,7 +89,7 @@ describe('generateMaze — reachability under slide physics', () => {
         const maze = tryGenerate(seed, difficulty);
         if (!maze) continue;
         successes++;
-        const reached = reachableFloorsViaSlides(maze.cells, maze.width, maze.startPosition);
+        const reached = reachableFloorsViaSlides(maze.cells, maze.width, maze.height, maze.startPosition);
         for (let y = 0; y < maze.height; y++) {
           for (let x = 0; x < maze.width; x++) {
             if (maze.cells[y]![x] === 'floor') {
@@ -99,49 +98,97 @@ describe('generateMaze — reachability under slide physics', () => {
           }
         }
       }
-      // At least 80% of seeds should succeed
       expect(successes).toBeGreaterThanOrEqual(40);
     });
   }
 });
 
-describe('generateMaze — floor count within difficulty bounds', () => {
+describe('generateMaze — floor count within derived bounds', () => {
   for (const difficulty of DIFFICULTIES) {
-    it(`floor count is within bounds (${difficulty}, 50 seeds)`, () => {
+    it(`floor count is within [carveable*0.70, carveable*0.80] (${difficulty}, 50 seeds)`, () => {
       const counts: number[] = [];
       let successes = 0;
-      let failures = 0;
       for (let i = 0; i < 50; i++) {
         const seed = i.toString(16).padStart(64, '0');
         const maze = tryGenerate(seed, difficulty);
-        if (!maze) { failures++; continue; }
+        if (!maze) continue;
         successes++;
-        counts.push(countFloors(maze));
+        const floors = countFloors(maze);
+        counts.push(floors);
+        const carveable = (maze.width - 2) * (maze.height - 2) + 1;
+        const floorMin = Math.floor(carveable * 0.70);
+        const floorMax = Math.floor(carveable * 0.80);
+        expect(floors).toBeGreaterThanOrEqual(floorMin);
+        expect(floors).toBeLessThanOrEqual(floorMax);
       }
-      const cfg = DIFFICULTY_CONFIGS[difficulty];
-      // 80%+ success rate
       expect(successes).toBeGreaterThanOrEqual(40);
-      // 100% of successes within bounds
-      const inBounds = counts.filter((c) => c >= cfg.floorTargetMin && c <= cfg.floorTargetMax).length;
       const sorted = [...counts].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)]!;
-      console.log(`[${difficulty}] floor counts: min=${Math.min(...counts)} max=${Math.max(...counts)} median=${median} inBounds=${inBounds}/${counts.length} success=${successes}/50 configMin=${cfg.floorTargetMin} configMax=${cfg.floorTargetMax}`);
-      expect(inBounds).toBe(counts.length);
+      console.log(`[${difficulty}] floor counts: min=${Math.min(...counts)} max=${Math.max(...counts)} median=${median} success=${successes}/50`);
     });
   }
 });
 
 describe('generateMaze — minimumMoveLowerBound sanity', () => {
   for (const difficulty of DIFFICULTIES) {
-    it(`minimumMoveLowerBound >= 1 and <= solutionMoveBudget (${difficulty}, 20 seeds)`, () => {
-      const cfg = DIFFICULTY_CONFIGS[difficulty];
+    it(`minimumMoveLowerBound >= 1 (${difficulty}, 20 seeds)`, () => {
       for (let i = 0; i < 20; i++) {
         const seed = i.toString(16).padStart(64, '0');
         const maze = tryGenerate(seed, difficulty);
         if (!maze) continue;
         expect(maze.minimumMoveLowerBound).toBeGreaterThanOrEqual(1);
-        expect(maze.minimumMoveLowerBound).toBeLessThanOrEqual(cfg.solutionMoveBudget);
       }
+    });
+  }
+});
+
+describe('generateMaze — dimension diversity', () => {
+  for (const difficulty of DIFFICULTIES) {
+    it(`produces multiple distinct (width, height) combos across 50 seeds (${difficulty})`, () => {
+      const dims = new Set<string>();
+      const grids = new Set<string>();
+      let ok = 0;
+      for (let s = 0; s < 50; s++) {
+        const seed = s.toString(16).padStart(64, '0');
+        const maze = tryGenerate(seed, difficulty);
+        if (!maze) continue;
+        ok++;
+        dims.add(`${maze.width}x${maze.height}`);
+        const hash = maze.cells.map(r => r.map(c => c === 'floor' ? '.' : '#').join('')).join('|');
+        grids.add(hash);
+      }
+      console.log(`[${difficulty}] dimension diversity: ok=${ok}/50 dims=${[...dims].join(',')} unique_grids=${grids.size}/${ok}`);
+      expect(ok).toBeGreaterThanOrEqual(40);
+      expect(dims.size).toBeGreaterThanOrEqual(2);
+      expect(grids.size).toBeGreaterThanOrEqual(Math.floor(ok * 0.95));
+    });
+  }
+});
+
+describe('generateMaze — shape diversity', () => {
+  for (const difficulty of DIFFICULTIES) {
+    it(`produces diverse layouts across 100 seeds (${difficulty})`, () => {
+      const grids = new Set<string>();
+      const obstCounts: number[] = [];
+      let ok = 0;
+      for (let s = 0; s < 100; s++) {
+        const seed = s.toString(16).padStart(64, '0');
+        try {
+          const maze = generateMaze(seed, difficulty);
+          ok++;
+          const hash = maze.cells.map(r => r.map(c => c === 'floor' ? '.' : '#').join('')).join('|');
+          grids.add(hash);
+          let obstacles = 0;
+          for (const row of maze.cells) for (const c of row) if (c === 'obstacle') obstacles++;
+          obstCounts.push(obstacles);
+        } catch { /* accepted below */ }
+      }
+      const spread = Math.max(...obstCounts) - Math.min(...obstCounts);
+      const minSpread = difficulty === 'easy' ? 5 : difficulty === 'medium' ? 10 : 12;
+      console.log(`[${difficulty}] diversity: ok=${ok}/100 unique=${grids.size}/${ok} obstSpread=${spread} (min=${Math.min(...obstCounts)} max=${Math.max(...obstCounts)}) minSpread=${minSpread}`);
+      expect(ok).toBeGreaterThanOrEqual(95);
+      expect(grids.size).toBeGreaterThanOrEqual(Math.floor(ok * 0.95));
+      expect(spread).toBeGreaterThanOrEqual(minSpread);
     });
   }
 });
@@ -157,7 +204,6 @@ describe('generateMaze — solvability by construction', () => {
         successes++;
         expect(maze.minimumMoveLowerBound).toBeGreaterThan(0);
       }
-      // At least 80% success
       expect(successes).toBeGreaterThanOrEqual(24);
     });
   }
@@ -210,7 +256,7 @@ describe('generateMaze — ASCII visual sample (for human inspection)', () => {
       const maze = generateMaze(seed, d);
       const floors = countFloors(maze);
       const lines: string[] = [];
-      lines.push(`\n--- ${d} (size ${maze.width}, ${floors} floors, ${maze.minimumMoveLowerBound} recorded moves) ---`);
+      lines.push(`\n--- ${d} (${maze.width}x${maze.height}, ${floors} floors, ${maze.minimumMoveLowerBound} recorded moves) ---`);
       for (let y = 0; y < maze.height; y++) {
         const row: string[] = [];
         for (let x = 0; x < maze.width; x++) {

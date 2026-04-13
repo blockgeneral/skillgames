@@ -32,17 +32,18 @@ export interface Coordinate {
 export type CellType = 'floor' | 'obstacle' | 'void';
 
 export interface DifficultyConfig {
-  readonly size: number;
-  readonly solutionMoveBudget: number;
-  readonly stopProb: number;
-  readonly floorTargetMin: number;
-  readonly floorTargetMax: number;
+  /** Min and max grid width (inclusive). */
+  readonly widthMin: number;
+  readonly widthMax: number;
+  /** Min and max grid height (inclusive). */
+  readonly heightMin: number;
+  readonly heightMax: number;
 }
 
 export const DIFFICULTY_CONFIGS: Readonly<Record<Difficulty, DifficultyConfig>> = {
-  easy:   { size: 7,  solutionMoveBudget: 20, stopProb: 0.50, floorTargetMin: 22, floorTargetMax: 38 },
-  medium: { size: 10, solutionMoveBudget: 45, stopProb: 0.42, floorTargetMin: 50, floorTargetMax: 78 },
-  hard:   { size: 13, solutionMoveBudget: 80, stopProb: 0.35, floorTargetMin: 90, floorTargetMax: 130 },
+  easy:   { widthMin: 6,  widthMax: 8,  heightMin: 7,  heightMax: 8  },
+  medium: { widthMin: 10, widthMax: 12, heightMin: 12, heightMax: 14 },
+  hard:   { widthMin: 14, widthMax: 17, heightMin: 17, heightMax: 18 },
 };
 
 /**

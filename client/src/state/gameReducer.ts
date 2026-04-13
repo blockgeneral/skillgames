@@ -3,11 +3,13 @@ import {
   type MazeState,
   type Difficulty,
   type Direction,
+  type Coordinate,
   type PaintMove,
   type Seed,
   generateMaze,
   createInitialGameState,
   applyMove,
+  simulateSlide,
   calculateProgress,
   isPaintComplete,
 } from '@skillgames/shared';
@@ -40,6 +42,8 @@ export interface GameState {
   readonly progress: number;
   /** Whether game is paused */
   readonly paused: boolean;
+  /** Cells traversed during the last slide (for trail rendering) */
+  readonly lastSlidePath: Coordinate[];
 }
 
 /**
@@ -71,6 +75,7 @@ function createGameStateFromMaze(
     difficulty,
     progress: calculateProgress(mazeState),
     paused: false,
+    lastSlidePath: [],
   };
 }
 
@@ -108,6 +113,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         return state;
       }
 
+      // Compute slide path for trail rendering
+      const { path } = simulateSlide(
+        state.mazeState.maze.cells,
+        state.mazeState.playerPosition.x,
+        state.mazeState.playerPosition.y,
+        action.direction,
+        state.mazeState.maze.width,
+        state.mazeState.maze.height,
+      );
+
       const progress = calculateProgress(newMazeState);
       const won = isPaintComplete(newMazeState);
 
@@ -116,6 +131,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         mazeState: newMazeState,
         progress,
         status: won ? 'won' : state.status,
+        lastSlidePath: path,
       };
     }
 

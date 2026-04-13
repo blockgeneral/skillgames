@@ -59,7 +59,7 @@ export function HomeScreen({ onStartGame }: HomeScreenProps): JSX.Element {
                     {opt.label}
                   </span>
                   <span className="text-xs text-slate-400">
-                    {config.size}x{config.size}
+                    {config.widthMin}-{config.widthMax} x {config.heightMin}-{config.heightMax}
                   </span>
                 </button>
               );
