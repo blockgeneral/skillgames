@@ -156,10 +156,10 @@ export function MazeRenderer({
       let cy: number;
       if (frame) {
         cx = frame.ballPos.x * cellSize + cellSize / 2;
-        cy = frame.ballPos.y * cellSize + WALL_H + cellSize / 2;
+        cy = frame.ballPos.y * cellSize + cellSize / 2;
       } else {
         cx = playerPosition.x * cellSize + cellSize / 2;
-        cy = playerPosition.y * cellSize + WALL_H + cellSize / 2;
+        cy = playerPosition.y * cellSize + cellSize / 2;
         if (slideStartRef.current !== null) {
           // Slide just ended — clear slide but let drops/history decay naturally
           slideStartRef.current = null;
@@ -224,7 +224,7 @@ export function MazeRenderer({
   const ballX = frame ? frame.ballPos.x : playerPosition.x;
   const ballY = frame ? frame.ballPos.y : playerPosition.y;
   const ballCx = ballX * cellSize + cellSize / 2;
-  const ballCy = ballY * cellSize + WALL_H + cellSize / 2;
+  const ballCy = ballY * cellSize + cellSize / 2;
   const playerRadius = cellSize * 0.32;
 
   // Only FRESHLY painted cells in this slide should be masked until reached.
@@ -277,7 +277,7 @@ export function MazeRenderer({
         <rect
           key={key}
           x={x * cellSize + cellPadding}
-          y={y * cellSize + WALL_H + cellPadding}
+          y={y * cellSize + cellPadding}
           width={cellSize - cellPadding * 2}
           height={cellSize - cellPadding * 2}
           rx={2}
@@ -306,7 +306,7 @@ export function MazeRenderer({
           y={y * cellSize}
           width={cellSize}
           height={cellSize}
-          fill="url(#wall-unified)"
+          fill="#1e293b"
         />
       );
       // Mask rect: matches the new unified wall geometry so the overlay tints
@@ -326,6 +326,31 @@ export function MazeRenderer({
     }
   }
 
+  // Depth band pass: thin dark rect at the bottom of each wall cell whose
+  // neighbor below is a floor cell. Provides the 2.5D depth read without
+  // extending any cell geometry beyond its grid square.
+  const depthBands: JSX.Element[] = [];
+  for (let y = 0; y < maze.height; y++) {
+    const row = maze.cells[y];
+    if (!row) continue;
+    for (let x = 0; x < maze.width; x++) {
+      if (row[x] === 'floor') continue;
+      const belowCell = maze.cells[y + 1]?.[x];
+      if (belowCell !== 'floor') continue;
+      depthBands.push(
+        <rect
+          key={`${coordinateToKey({ x, y })}-band`}
+          x={x * cellSize}
+          y={(y + 1) * cellSize - WALL_H}
+          width={cellSize}
+          height={WALL_H}
+          fill="#000"
+          opacity={0.35}
+        />
+      );
+    }
+  }
+
   return (
     <svg
       width={size}
@@ -342,14 +367,6 @@ export function MazeRenderer({
         <linearGradient id="floor-tile" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#64748b" />
           <stop offset="100%" stopColor="#475569" />
-        </linearGradient>
-        {/* Unified wall gradient: flat top 75%, dark band in bottom 25%
-            corresponding visually to WALL_H = cellSize * 0.25 depth. */}
-        <linearGradient id="wall-unified" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#1e293b" />
-          <stop offset="75%" stopColor="#1e293b" />
-          <stop offset="76%" stopColor="#0f1729" />
-          <stop offset="100%" stopColor="#0a1020" />
         </linearGradient>
         <linearGradient id={`painted-tile-${palette.name}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={palette.paint1} />
@@ -373,10 +390,10 @@ export function MazeRenderer({
         )}
       </defs>
 
-      {floorElements}
+      {/* 1. Wall flat fills (back) */}
       {wallElements}
 
-      {/* Background pattern overlay — painted only over wall silhouettes */}
+      {/* 2. Wall pattern overlay — painted only over wall silhouettes */}
       {hasBgOverlay && (
         <rect
           x={0}
@@ -389,7 +406,13 @@ export function MazeRenderer({
         />
       )}
 
-      {/* Ball effect (between walls and ball) */}
+      {/* 3. Wall depth bands — sit on top of overlay for consistent depth read */}
+      {depthBands}
+
+      {/* 4. Floor cells */}
+      {floorElements}
+
+      {/* 5. Ball effect (between floors and ball) */}
       {ballResult.nodes}
 
       {/* Ball shadow */}

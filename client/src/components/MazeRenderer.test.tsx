@@ -165,10 +165,9 @@ describe('MazeRenderer', () => {
       const state = createInitialGameState(maze);
       const size = 300;
       const cellSize = size / maze.width;
-      const WALL_H = cellSize * 0.25;
 
       const expectedCx = maze.startPosition.x * cellSize + cellSize / 2;
-      const expectedCy = maze.startPosition.y * cellSize + WALL_H + cellSize / 2;
+      const expectedCy = maze.startPosition.y * cellSize + cellSize / 2;
 
       const { getByTestId } = render(<MazeRenderer state={state} size={size} />);
       const player = getByTestId('player-marker');
@@ -183,7 +182,6 @@ describe('MazeRenderer', () => {
       const baseState = createInitialGameState(maze);
       const size = 300;
       const cellSize = size / maze.width;
-      const WALL_H = cellSize * 0.25;
 
       const state: MazeGameState = {
         ...baseState,
@@ -191,7 +189,7 @@ describe('MazeRenderer', () => {
       };
 
       const expectedCx = 2 * cellSize + cellSize / 2;
-      const expectedCy = 3 * cellSize + WALL_H + cellSize / 2;
+      const expectedCy = 3 * cellSize + cellSize / 2;
 
       const { getByTestId } = render(<MazeRenderer state={state} size={size} />);
       const player = getByTestId('player-marker');
