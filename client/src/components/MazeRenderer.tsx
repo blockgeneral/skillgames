@@ -1,56 +1,67 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MazeGameState, Coordinate, NeonPalette } from '@skillgames/shared';
 import { coordinateToKey, getPaletteForSeed } from '@skillgames/shared';
+import type { BallEffectId, BackgroundEffectId, BallSample, CellDrop } from './effects/types.js';
+import { renderBallEffect } from './effects/ballEffects.js';
+import { renderBackgroundEffect } from './effects/backgroundEffects.js';
+import { DEFAULT_WALL_THEME } from './effects/types.js';
 
 /**
  * Per-cell ball travel time during a slide. Total slide duration scales with
- * path length, so the ball moves at a constant per-cell speed regardless of
- * how far it slides. Tune here.
+ * path length. Faster than before to match input rate.
  */
-const MS_PER_CELL = 80;
+const MS_PER_CELL = 40;
 
 /**
- * Trail glow lifetime per cell, measured from when the ball first arrives at
- * that cell. Trail dots fade linearly from full opacity to zero over this
- * window. Total animation time = (path.length - 1) * MS_PER_CELL + TRAIL_FADE_MS.
+ * How long ball samples stay in history for trail-anchored effects. Must be
+ * long enough that rocket/streak/plasma look continuous, short enough that
+ * ghost echoes don't lag indefinitely once the ball stops.
  */
-const TRAIL_FADE_MS = 800;
+const HISTORY_WINDOW_MS = 450;
 
 /**
- * Props for the MazeRenderer component.
+ * Max samples kept in history, as a safety cap on memory.
  */
+const HISTORY_MAX_SAMPLES = 40;
+
+/**
+ * Max age of cell "drops" (for scorched/particles/ink/rings). Drops older
+ * than this are evicted.
+ */
+const DROP_WINDOW_MS = 800;
+
 export interface MazeRendererProps {
-  /** The current game state to render */
   state: MazeGameState;
-  /** Size in pixels (width — height scales proportionally) */
   size: number;
-  /** Cells from the last slide for trail effect */
   lastSlidePath?: Coordinate[];
+  /**
+   * Subset of lastSlidePath that was freshly painted by this slide. Renderer
+   * masks only these cells as unpainted-until-reached so the ball doesn't
+   * appear to "re-paint" cells it's retraversing.
+   */
+  lastSlideFreshCells?: ReadonlyArray<Coordinate>;
+  /** Timestamp (Date.now() scale) of the last applied move — changes identity per move. */
+  lastSlideAt?: number;
+  ballEffect?: BallEffectId;
+  backgroundEffect?: BackgroundEffectId;
 }
 
 interface SlideFrame {
   ballPos: { x: number; y: number };
   cellsReached: number;
-  pathAhead: Set<string>;
-  trail: ReadonlyArray<{ key: string; coord: Coordinate; opacity: number }>;
+  /** Set of "x,y" keys for path cells the ball has NOT yet reached. */
+  pathAheadKeys: Set<string>;
 }
 
-/**
- * Computes the visual state for the in-progress slide animation.
- * Returns null if no slide is active or the animation has fully completed
- * (trail also fully decayed).
- */
 function computeSlideFrame(
   path: Coordinate[] | undefined,
   slideStart: number | null,
   now: number
 ): SlideFrame | null {
   if (!path || path.length < 2 || slideStart === null) return null;
-
   const elapsed = now - slideStart;
   const totalSlideMs = (path.length - 1) * MS_PER_CELL;
-  const totalAnimMs = totalSlideMs + TRAIL_FADE_MS;
-  if (elapsed >= totalAnimMs) return null;
+  if (elapsed >= totalSlideMs) return null;
 
   const exactCellPos = Math.min(path.length - 1, elapsed / MS_PER_CELL);
   const cellsReached = Math.floor(exactCellPos);
@@ -63,36 +74,25 @@ function computeSlideFrame(
     y: fromCell.y + (toCell.y - fromCell.y) * subProgress,
   };
 
-  const pathAhead = new Set<string>();
+  const pathAheadKeys = new Set<string>();
   for (let i = cellsReached + 1; i < path.length; i++) {
-    pathAhead.add(coordinateToKey(path[i]!));
+    pathAheadKeys.add(coordinateToKey(path[i]!));
   }
-
-  const trail: Array<{ key: string; coord: Coordinate; opacity: number }> = [];
-  for (let i = 0; i <= cellsReached; i++) {
-    const cell = path[i]!;
-    const timeReached = i * MS_PER_CELL;
-    const ageMs = elapsed - timeReached;
-    const opacity = Math.max(0, 1 - ageMs / TRAIL_FADE_MS);
-    if (opacity > 0) {
-      trail.push({ key: `t-${i}`, coord: cell, opacity });
-    }
-  }
-
-  return { ballPos, cellsReached, pathAhead, trail };
+  return { ballPos, cellsReached, pathAheadKeys };
 }
 
 /**
- * 2.5D SVG renderer for Maze Paint.
- *
- * Animation model: the reducer applies slide moves instantly, but the renderer
- * interpolates the ball position frame-by-frame and masks not-yet-reached
- * cells in the active slide path so that paint visually follows the ball.
- *
- * Per-match palette is derived from the maze seed so both opponents see the
- * same colors.
+ * 2.5D SVG renderer for Maze Paint with pluggable ball + background effects.
  */
-export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps): JSX.Element {
+export function MazeRenderer({
+  state,
+  size,
+  lastSlidePath,
+  lastSlideFreshCells,
+  lastSlideAt,
+  ballEffect = 'none',
+  backgroundEffect = 'none',
+}: MazeRendererProps): JSX.Element {
   const { maze, paintedCells, playerPosition } = state;
   const cellSize = size / maze.width;
   const WALL_H = cellSize * 0.25;
@@ -101,49 +101,157 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
 
   const palette: NeonPalette = getPaletteForSeed(maze.seed);
 
-  // Animation state: slideStart is set when a new lastSlidePath arrives.
-  // The forceFrameTick state forces a re-render on each rAF tick during animation.
+  // Slide animation state
   const slideStartRef = useRef<number | null>(null);
-  const lastPathRef = useRef<Coordinate[] | undefined>(undefined);
+  const lastSlideAtRef = useRef<number | undefined>(undefined);
+  const historyRef = useRef<BallSample[]>([]);
+  const dropsRef = useRef<CellDrop[]>([]);
+  const lastCellRef = useRef<{ x: number; y: number } | null>(null);
   const [, forceFrameTick] = useState(0);
 
-  // When a new slide path arrives, mark the start time and run the rAF loop
-  // for the duration of the slide + trail fade.
-  useEffect(() => {
-    if (!lastSlidePath || lastSlidePath.length < 2) return;
-    if (lastSlidePath === lastPathRef.current) return;
-    lastPathRef.current = lastSlidePath;
-    slideStartRef.current = performance.now();
+  // Determine whether an effect requires continuous rAF (drops fading, or
+  // effect animates independently of ball motion).
+  const needsContinuousRaf =
+    ballEffect !== 'none' || backgroundEffect !== 'none';
 
-    const totalAnimMs = (lastSlidePath.length - 1) * MS_PER_CELL + TRAIL_FADE_MS;
+  // Start a new slide when lastSlideAt changes — initialized DURING render so
+  // the first paint already shows the ball at path[0], not at the destination.
+  // Without this synchronous init, React would render the new ball position
+  // before the post-paint effect could anchor the slide animation, causing a
+  // one-frame "flash" at the destination cell.
+  if (
+    lastSlidePath &&
+    lastSlidePath.length >= 2 &&
+    lastSlideAt !== lastSlideAtRef.current
+  ) {
+    lastSlideAtRef.current = lastSlideAt;
+    slideStartRef.current = performance.now();
+    lastCellRef.current = null;
+  }
+
+  // Main animation loop. Runs whenever any slide or effect is active.
+  useEffect(() => {
     let raf = 0;
+    let cancelled = false;
     const loop = (): void => {
-      const elapsed = performance.now() - slideStartRef.current!;
-      forceFrameTick((t) => (t + 1) % 1_000_000);
-      if (elapsed < totalAnimMs) {
-        raf = requestAnimationFrame(loop);
+      if (cancelled) return;
+      const now = performance.now();
+
+      // Sample ball position into history + compute current ball position
+      const frame = computeSlideFrame(lastSlidePath, slideStartRef.current, now);
+      let cx: number;
+      let cy: number;
+      if (frame) {
+        cx = frame.ballPos.x * cellSize + cellSize / 2;
+        cy = frame.ballPos.y * cellSize + WALL_H + cellSize / 2;
       } else {
-        slideStartRef.current = null;
+        cx = playerPosition.x * cellSize + cellSize / 2;
+        cy = playerPosition.y * cellSize + WALL_H + cellSize / 2;
+        if (slideStartRef.current !== null) {
+          // Slide just ended — clear slide but let drops/history decay naturally
+          slideStartRef.current = null;
+        }
+      }
+
+      historyRef.current.push({ cx, cy, t: now });
+      while (historyRef.current.length > 0 && now - historyRef.current[0]!.t > HISTORY_WINDOW_MS) {
+        historyRef.current.shift();
+      }
+      while (historyRef.current.length > HISTORY_MAX_SAMPLES) historyRef.current.shift();
+
+      // Record cell-exit drops when ball crosses into a new cell during a slide
+      if (frame && lastSlidePath) {
+        const currentCell = lastSlidePath[frame.cellsReached]!;
+        const last = lastCellRef.current;
+        if (!last || last.x !== currentCell.x || last.y !== currentCell.y) {
+          dropsRef.current.push({ coord: currentCell, arrivedAt: now });
+          lastCellRef.current = { x: currentCell.x, y: currentCell.y };
+        }
+      }
+      // Evict expired drops
+      while (dropsRef.current.length > 0 && now - dropsRef.current[0]!.arrivedAt > DROP_WINDOW_MS) {
+        dropsRef.current.shift();
+      }
+
+      forceFrameTick((t) => (t + 1) % 1_000_000);
+
+      // Continue the loop if: slide is active, drops are still fading, or a
+      // continuous-animation effect is selected that needs frame updates.
+      const hasLiveDrops = dropsRef.current.length > 0;
+      const slideActive = frame !== null;
+      const shouldContinue =
+        slideActive || hasLiveDrops || needsContinuousRaf;
+
+      if (shouldContinue) {
+        raf = requestAnimationFrame(loop);
       }
     };
+
+    // Always kick the loop; it self-terminates via shouldContinue.
     raf = requestAnimationFrame(loop);
+
     return () => {
+      cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [lastSlidePath]);
+  }, [
+    lastSlideAt,
+    lastSlidePath,
+    playerPosition.x,
+    playerPosition.y,
+    cellSize,
+    WALL_H,
+    needsContinuousRaf,
+    backgroundEffect,
+    ballEffect,
+  ]);
 
-  const frame = computeSlideFrame(lastSlidePath, slideStartRef.current, performance.now());
-
-  // Resolve final ball position and which cells should look painted right now.
+  const now = performance.now();
+  const frame = computeSlideFrame(lastSlidePath, slideStartRef.current, now);
   const ballX = frame ? frame.ballPos.x : playerPosition.x;
   const ballY = frame ? frame.ballPos.y : playerPosition.y;
-  const pathAhead = frame ? frame.pathAhead : null;
+  const ballCx = ballX * cellSize + cellSize / 2;
+  const ballCy = ballY * cellSize + WALL_H + cellSize / 2;
+  const playerRadius = cellSize * 0.32;
+
+  // Only FRESHLY painted cells in this slide should be masked until reached.
+  // Retraversed cells stay painted.
+  const freshKeys = new Set<string>();
+  if (lastSlideFreshCells) {
+    for (const c of lastSlideFreshCells) freshKeys.add(coordinateToKey(c));
+  }
+  const maskedKeys = new Set<string>();
+  if (frame) {
+    for (const k of frame.pathAheadKeys) {
+      if (freshKeys.has(k)) maskedKeys.add(k);
+    }
+  }
+
+  // Background effect — contributes the bg-pattern <defs>; walls always use
+  // DEFAULT_WALL_THEME (solid dark slate). The pattern is painted as a single
+  // low-opacity overlay rect masked to wall cells (see overlay layer below).
+  const bgResult = renderBackgroundEffect({ effect: backgroundEffect, now });
+  const hasBgOverlay = backgroundEffect !== 'none';
+
+  // Ball effect
+  const ballResult = renderBallEffect({
+    effect: ballEffect,
+    ballCx,
+    ballCy,
+    history: historyRef.current,
+    drops: dropsRef.current,
+    cellSize,
+    wallH: WALL_H,
+    palette,
+    now,
+  });
 
   // Render passes
   const floorElements: JSX.Element[] = [];
   const wallElements: JSX.Element[] = [];
+  // White rects defining the wall region for the overlay mask.
+  const wallMaskRects: JSX.Element[] = [];
 
-  // Floor pass
   for (let y = 0; y < maze.height; y++) {
     const row = maze.cells[y];
     if (!row) continue;
@@ -151,10 +259,7 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
       const cellType = row[x];
       if (cellType !== 'floor') continue;
       const key = coordinateToKey({ x, y });
-      // A cell is visually painted iff it's in the canonical painted set AND
-      // the ball has either already passed it or it's not part of the
-      // currently-animating slide path.
-      const isPainted = paintedCells.has(key) && !(pathAhead && pathAhead.has(key));
+      const isPainted = paintedCells.has(key) && !maskedKeys.has(key);
       floorElements.push(
         <rect
           key={key}
@@ -173,8 +278,6 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
     }
   }
 
-  // Wall pass — flat fills, zero padding so adjacent walls merge into a
-  // continuous cream surface.
   for (let y = 0; y < maze.height; y++) {
     const row = maze.cells[y];
     if (!row) continue;
@@ -190,7 +293,7 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
           y={(y + 1) * cellSize}
           width={cellSize}
           height={WALL_H}
-          fill="#b8a990"
+          fill={DEFAULT_WALL_THEME.sideFill}
         />
       );
       wallElements.push(
@@ -200,10 +303,23 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
           y={y * cellSize}
           width={cellSize}
           height={cellSize}
-          fill="#ece5d3"
+          fill={DEFAULT_WALL_THEME.topFill}
         />
       );
-
+      // Mask rect: covers the same area as the wall top + side faces so the
+      // overlay tints the full visible wall silhouette.
+      if (hasBgOverlay) {
+        wallMaskRects.push(
+          <rect
+            key={`${key}-mask`}
+            x={x * cellSize}
+            y={y * cellSize}
+            width={cellSize}
+            height={cellSize + WALL_H}
+            fill="white"
+          />
+        );
+      }
       const belowCell = maze.cells[y + 1]?.[x];
       if (belowCell === 'floor') {
         wallElements.push(
@@ -219,32 +335,6 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
       }
     }
   }
-
-  // Trail glow elements — rendered above floor, below the ball.
-  // Drawn as soft circles in the palette's trail color, each fading on its own clock.
-  const trailElements: JSX.Element[] = [];
-  if (frame) {
-    for (const t of frame.trail) {
-      const cx = t.coord.x * cellSize + cellSize / 2;
-      const cy = t.coord.y * cellSize + WALL_H + cellSize / 2;
-      trailElements.push(
-        <circle
-          key={t.key}
-          cx={cx}
-          cy={cy}
-          r={cellSize * 0.42}
-          fill={palette.trail}
-          opacity={t.opacity * 0.65}
-          filter="url(#trail-blur)"
-        />
-      );
-    }
-  }
-
-  // Ball geometry
-  const playerCx = ballX * cellSize + cellSize / 2;
-  const playerCy = ballY * cellSize + WALL_H + cellSize / 2;
-  const playerRadius = cellSize * 0.32;
 
   return (
     <svg
@@ -268,40 +358,54 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
           <stop offset="60%" stopColor="#cbd5e1" />
           <stop offset="100%" stopColor="#64748b" />
         </radialGradient>
-        <filter id="trail-blur" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation={cellSize * 0.08} />
-        </filter>
         <filter id="ball-shadow-blur" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation={cellSize * 0.06} />
         </filter>
+        {bgResult.defs}
+        {ballResult.defs}
+        {hasBgOverlay && (
+          <mask id="wall-overlay-mask" maskUnits="userSpaceOnUse" x={0} y={0} width={size} height={svgHeight}>
+            <rect x={0} y={0} width={size} height={svgHeight} fill="black" />
+            {wallMaskRects}
+          </mask>
+        )}
       </defs>
 
-      {/* Background */}
       <rect x={0} y={0} width={size} height={svgHeight} fill="#1e293b" />
 
-      {/* Floor cells */}
       {floorElements}
-
-      {/* Walls */}
       {wallElements}
 
-      {/* Trail (above floor, below ball) */}
-      {trailElements}
+      {/* Background pattern overlay — painted only over wall silhouettes */}
+      {hasBgOverlay && (
+        <rect
+          x={0}
+          y={0}
+          width={size}
+          height={svgHeight}
+          fill="url(#bg-pattern)"
+          opacity={0.7}
+          mask="url(#wall-overlay-mask)"
+        />
+      )}
 
-      {/* Ball shadow — soft, low-opacity, kept tight to the ball */}
+      {/* Ball effect (between walls and ball) */}
+      {ballResult.nodes}
+
+      {/* Ball shadow */}
       <ellipse
-        cx={playerCx}
-        cy={playerCy + playerRadius * 0.7}
+        cx={ballCx}
+        cy={ballCy + playerRadius * 0.7}
         rx={playerRadius * 0.55}
         ry={playerRadius * 0.18}
         fill="rgba(0,0,0,0.35)"
         filter="url(#ball-shadow-blur)"
       />
 
-      {/* Ball sphere — no CSS transition; position is updated per frame */}
+      {/* Ball sphere */}
       <circle
-        cx={playerCx}
-        cy={playerCy}
+        cx={ballCx}
+        cy={ballCy}
         r={playerRadius}
         fill="url(#ball-sphere)"
         data-testid="player-marker"
@@ -309,8 +413,8 @@ export function MazeRenderer({ state, size, lastSlidePath }: MazeRendererProps):
 
       {/* Ball highlight */}
       <ellipse
-        cx={playerCx - playerRadius * 0.2}
-        cy={playerCy - playerRadius * 0.2}
+        cx={ballCx - playerRadius * 0.2}
+        cy={ballCy - playerRadius * 0.2}
         rx={playerRadius * 0.28}
         ry={playerRadius * 0.22}
         fill="rgba(255,255,255,0.65)"

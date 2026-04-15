@@ -12,6 +12,7 @@ import {
   simulateSlide,
   calculateProgress,
   isPaintComplete,
+  coordinateToKey,
 } from '@skillgames/shared';
 import { generateSeed } from '../lib/seed.js';
 
@@ -44,6 +45,18 @@ export interface GameState {
   readonly paused: boolean;
   /** Cells traversed during the last slide (for trail rendering) */
   readonly lastSlidePath: Coordinate[];
+  /**
+   * Subset of lastSlidePath that were NOT already painted before this slide.
+   * Renderer uses this to mask paint-follows-ball — cells the ball retraverses
+   * stay painted rather than flashing back to unpainted.
+   */
+  readonly lastSlideFreshCells: ReadonlyArray<Coordinate>;
+  /**
+   * Timestamp (performance.now()-style ms) of the last applied move. Renderer
+   * uses this to trigger its animation loop. A distinct identity per move
+   * even when path is unchanged.
+   */
+  readonly lastSlideAt: number;
 }
 
 /**
@@ -76,6 +89,8 @@ function createGameStateFromMaze(
     progress: calculateProgress(mazeState),
     paused: false,
     lastSlidePath: [],
+    lastSlideFreshCells: [],
+    lastSlideAt: 0,
   };
 }
 
@@ -105,6 +120,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         timestamp: state.elapsedSeconds * 1000,
       };
 
+      // Capture the set of cells that were painted BEFORE this move so we can
+      // diff after.
+      const beforePainted = state.mazeState.paintedCells;
+
       // Apply the move; if ball can't move in that direction, returns unchanged state
       const newMazeState = applyMove(state.mazeState, move);
 
@@ -123,6 +142,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         state.mazeState.maze.height,
       );
 
+      // Diff: cells along the slide path that were NOT already painted
+      const freshCells: Coordinate[] = [];
+      for (const c of path) {
+        if (!beforePainted.has(coordinateToKey(c))) {
+          freshCells.push(c);
+        }
+      }
+
       const progress = calculateProgress(newMazeState);
       const won = isPaintComplete(newMazeState);
 
@@ -132,6 +159,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         progress,
         status: won ? 'won' : state.status,
         lastSlidePath: path,
+        lastSlideFreshCells: freshCells,
+        lastSlideAt: Date.now(),
       };
     }
 
