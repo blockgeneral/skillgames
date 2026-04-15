@@ -312,7 +312,7 @@ export function MazeRenderer({
         <rect
           key={`${key}-side`}
           x={x * cellSize}
-          y={(y + 1) * cellSize}
+          y={(y + 1) * cellSize + WALL_H}
           width={cellSize}
           height={WALL_H}
           fill={DEFAULT_WALL_THEME.sideFill}
@@ -322,7 +322,7 @@ export function MazeRenderer({
         <rect
           key={`${key}-top`}
           x={x * cellSize}
-          y={y * cellSize}
+          y={y * cellSize + WALL_H}
           width={cellSize}
           height={cellSize}
           fill={DEFAULT_WALL_THEME.topFill}
@@ -335,7 +335,7 @@ export function MazeRenderer({
           <rect
             key={`${key}-mask`}
             x={x * cellSize}
-            y={y * cellSize}
+            y={y * cellSize + WALL_H}
             width={cellSize}
             height={cellSize + WALL_H}
             fill="white"
@@ -349,7 +349,7 @@ export function MazeRenderer({
             <rect
               key={`${key}-shadow`}
               x={x * cellSize}
-              y={(y + 1) * cellSize + WALL_H}
+              y={(y + 1) * cellSize + 2 * WALL_H}
               width={cellSize}
               height={3}
               fill="rgba(0,0,0,0.3)"
