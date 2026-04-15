@@ -326,31 +326,6 @@ export function MazeRenderer({
     }
   }
 
-  // Depth band pass: thin dark rect at the bottom of each wall cell whose
-  // neighbor below is a floor cell. Provides the 2.5D depth read without
-  // extending any cell geometry beyond its grid square.
-  const depthBands: JSX.Element[] = [];
-  for (let y = 0; y < maze.height; y++) {
-    const row = maze.cells[y];
-    if (!row) continue;
-    for (let x = 0; x < maze.width; x++) {
-      if (row[x] === 'floor') continue;
-      const belowCell = maze.cells[y + 1]?.[x];
-      if (belowCell !== 'floor') continue;
-      depthBands.push(
-        <rect
-          key={`${coordinateToKey({ x, y })}-band`}
-          x={x * cellSize}
-          y={(y + 1) * cellSize - WALL_H}
-          width={cellSize}
-          height={WALL_H}
-          fill="#000"
-          opacity={0.35}
-        />
-      );
-    }
-  }
-
   return (
     <svg
       width={size}
@@ -406,13 +381,10 @@ export function MazeRenderer({
         />
       )}
 
-      {/* 3. Wall depth bands — sit on top of overlay for consistent depth read */}
-      {depthBands}
-
-      {/* 4. Floor cells */}
+      {/* 3. Floor cells */}
       {floorElements}
 
-      {/* 5. Ball effect (between floors and ball) */}
+      {/* 4. Ball effect (between floors and ball) */}
       {ballResult.nodes}
 
       {/* Ball shadow */}
