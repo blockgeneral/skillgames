@@ -4,7 +4,6 @@ import { coordinateToKey, getPaletteForSeed } from '@skillgames/shared';
 import type { BallEffectId, BackgroundEffectId, BallSample, CellDrop } from './effects/types.js';
 import { renderBallEffect } from './effects/ballEffects.js';
 import { renderBackgroundEffect } from './effects/backgroundEffects.js';
-import { DEFAULT_WALL_THEME } from './effects/types.js';
 
 /**
  * Per-cell ball travel time during a slide. Total slide duration scales with
@@ -29,14 +28,6 @@ const HISTORY_MAX_SAMPLES = 40;
  * than this are evicted.
  */
 const DROP_WINDOW_MS = 800;
-
-/**
- * If true, draws a 3px shadow band on floor cells that have a wall directly
- * above them. Originally added to sell the 2.5D depth when walls were cream.
- * With dark slate walls the depth read is weaker and the band visually
- * shortens cells sandwiched between walls. Set to false to disable.
- */
-const RENDER_WALL_SHADOW = false;
 
 /**
  * 3D perspective tilt angle in degrees. Rotates the maze around its top edge
@@ -119,7 +110,7 @@ export function MazeRenderer({
   const cellSize = size / maze.width;
   const WALL_H = cellSize * 0.25;
   const cellPadding = Math.max(0.5, cellSize * 0.04);
-  const svgHeight = size * (maze.height / maze.width) + WALL_H;
+  const svgHeight = size * (maze.height / maze.width);
 
   const palette: NeonPalette = getPaletteForSeed(maze.seed);
 
@@ -310,52 +301,27 @@ export function MazeRenderer({
 
       wallElements.push(
         <rect
-          key={`${key}-side`}
+          key={`${key}-wall`}
           x={x * cellSize}
-          y={(y + 1) * cellSize + WALL_H}
-          width={cellSize}
-          height={WALL_H}
-          fill={DEFAULT_WALL_THEME.sideFill}
-        />
-      );
-      wallElements.push(
-        <rect
-          key={`${key}-top`}
-          x={x * cellSize}
-          y={y * cellSize + WALL_H}
+          y={y * cellSize}
           width={cellSize}
           height={cellSize}
-          fill={DEFAULT_WALL_THEME.topFill}
+          fill="url(#wall-unified)"
         />
       );
-      // Mask rect: covers the same area as the wall top + side faces so the
-      // overlay tints the full visible wall silhouette.
+      // Mask rect: matches the new unified wall geometry so the overlay tints
+      // exactly the wall silhouette.
       if (hasBgOverlay) {
         wallMaskRects.push(
           <rect
             key={`${key}-mask`}
             x={x * cellSize}
-            y={y * cellSize + WALL_H}
+            y={y * cellSize}
             width={cellSize}
-            height={cellSize + WALL_H}
+            height={cellSize}
             fill="white"
           />
         );
-      }
-      if (RENDER_WALL_SHADOW) {
-        const belowCell = maze.cells[y + 1]?.[x];
-        if (belowCell === 'floor') {
-          wallElements.push(
-            <rect
-              key={`${key}-shadow`}
-              x={x * cellSize}
-              y={(y + 1) * cellSize + 2 * WALL_H}
-              width={cellSize}
-              height={3}
-              fill="rgba(0,0,0,0.3)"
-            />
-          );
-        }
       }
     }
   }
@@ -376,6 +342,14 @@ export function MazeRenderer({
         <linearGradient id="floor-tile" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#64748b" />
           <stop offset="100%" stopColor="#475569" />
+        </linearGradient>
+        {/* Unified wall gradient: flat top 75%, dark band in bottom 25%
+            corresponding visually to WALL_H = cellSize * 0.25 depth. */}
+        <linearGradient id="wall-unified" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1e293b" />
+          <stop offset="75%" stopColor="#1e293b" />
+          <stop offset="76%" stopColor="#0f1729" />
+          <stop offset="100%" stopColor="#0a1020" />
         </linearGradient>
         <linearGradient id={`painted-tile-${palette.name}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={palette.paint1} />
@@ -398,8 +372,6 @@ export function MazeRenderer({
           </mask>
         )}
       </defs>
-
-      <rect x={0} y={0} width={size} height={svgHeight} fill="#1e293b" />
 
       {floorElements}
       {wallElements}
