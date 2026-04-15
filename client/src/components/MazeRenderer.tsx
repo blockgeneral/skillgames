@@ -30,6 +30,14 @@ const HISTORY_MAX_SAMPLES = 40;
  */
 const DROP_WINDOW_MS = 800;
 
+/**
+ * If true, draws a 3px shadow band on floor cells that have a wall directly
+ * above them. Originally added to sell the 2.5D depth when walls were cream.
+ * With dark slate walls the depth read is weaker and the band visually
+ * shortens cells sandwiched between walls. Set to false to disable.
+ */
+const RENDER_WALL_SHADOW = false;
+
 export interface MazeRendererProps {
   state: MazeGameState;
   size: number;
@@ -320,18 +328,20 @@ export function MazeRenderer({
           />
         );
       }
-      const belowCell = maze.cells[y + 1]?.[x];
-      if (belowCell === 'floor') {
-        wallElements.push(
-          <rect
-            key={`${key}-shadow`}
-            x={x * cellSize}
-            y={(y + 1) * cellSize + WALL_H}
-            width={cellSize}
-            height={3}
-            fill="rgba(0,0,0,0.3)"
-          />
-        );
+      if (RENDER_WALL_SHADOW) {
+        const belowCell = maze.cells[y + 1]?.[x];
+        if (belowCell === 'floor') {
+          wallElements.push(
+            <rect
+              key={`${key}-shadow`}
+              x={x * cellSize}
+              y={(y + 1) * cellSize + WALL_H}
+              width={cellSize}
+              height={3}
+              fill="rgba(0,0,0,0.3)"
+            />
+          );
+        }
       }
     }
   }
