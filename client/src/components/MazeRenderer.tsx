@@ -38,6 +38,20 @@ const DROP_WINDOW_MS = 800;
  */
 const RENDER_WALL_SHADOW = false;
 
+/**
+ * 3D perspective tilt angle in degrees. Rotates the maze around its top edge
+ * so the bottom appears closer to the viewer (slot-machine / pinball feel).
+ * 0 = flat. Higher values = more tilt. 8° is conservative; 12-15° is more
+ * dramatic. Above ~22° starts to compress the top of the board noticeably.
+ */
+const TILT_DEGREES = 8;
+
+/**
+ * Perspective distance for the tilt. Smaller = stronger 3D effect (more
+ * dramatic foreshortening). Larger = subtler. 1200px pairs well with 8°.
+ */
+const TILT_PERSPECTIVE_PX = 1200;
+
 export interface MazeRendererProps {
   state: MazeGameState;
   size: number;
@@ -277,8 +291,8 @@ export function MazeRenderer({
           height={cellSize - cellPadding * 2}
           rx={2}
           fill={isPainted ? `url(#painted-tile-${palette.name})` : 'url(#floor-tile)'}
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth={0.3}
+          stroke={isPainted ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)'}
+          strokeWidth={isPainted ? 0.3 : 1}
           data-cell-key={key}
           data-painted={isPainted ? 'true' : 'false'}
         />
@@ -353,11 +367,15 @@ export function MazeRenderer({
       viewBox={`0 0 ${size} ${svgHeight}`}
       className="block"
       data-testid="maze-renderer"
+      style={{
+        transform: `perspective(${TILT_PERSPECTIVE_PX}px) rotateX(${TILT_DEGREES}deg)`,
+        transformOrigin: 'center top',
+      }}
     >
       <defs>
         <linearGradient id="floor-tile" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#475569" />
-          <stop offset="100%" stopColor="#334155" />
+          <stop offset="0%" stopColor="#64748b" />
+          <stop offset="100%" stopColor="#475569" />
         </linearGradient>
         <linearGradient id={`painted-tile-${palette.name}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={palette.paint1} />
