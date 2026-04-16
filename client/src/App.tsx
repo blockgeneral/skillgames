@@ -48,12 +48,24 @@ export function App(): JSX.Element {
     setScreen('game');
   }, []);
 
-  // Transition to result screen when game ends
+  // Transition to result screen when game ends.
+  // On win, delay so the final slide animation completes before the maze
+  // disappears. Slide duration = (pathLen - 1) * 40ms + 200ms visual buffer.
+  // On timeout, transition immediately.
   useEffect(() => {
-    if (screen === 'game' && gameState.status !== 'playing') {
+    if (screen !== 'game' || gameState.status === 'playing') return;
+
+    if (gameState.status === 'timeout') {
       setScreen('result');
+      return;
     }
-  }, [screen, gameState.status]);
+
+    // status === 'won'
+    const pathLen = gameState.lastSlidePath?.length ?? 0;
+    const slideMs = Math.max(0, (pathLen - 1) * 40) + 200;
+    const timer = setTimeout(() => setScreen('result'), slideMs);
+    return () => clearTimeout(timer);
+  }, [screen, gameState.status, gameState.lastSlidePath]);
 
   return (
     <>
