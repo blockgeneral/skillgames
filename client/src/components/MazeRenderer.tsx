@@ -35,7 +35,7 @@ const DROP_WINDOW_MS = 800;
  * 0 = flat. Higher values = more tilt. 8° is conservative; 12-15° is more
  * dramatic. Above ~22° starts to compress the top of the board noticeably.
  */
-const TILT_DEGREES = 8;
+const TILT_DEGREES = 12;
 
 /**
  * Perspective distance for the tilt. Smaller = stronger 3D effect (more
@@ -326,6 +326,39 @@ export function MazeRenderer({
     }
   }
 
+  // Bevel highlights and shadows on wall-to-floor boundaries.
+  // Light lines on top/left edges facing floor; dark lines on bottom/right.
+  const bevelElements: JSX.Element[] = [];
+  const BEVEL_W = Math.max(1, cellSize * 0.04);
+  for (let y = 0; y < maze.height; y++) {
+    const row = maze.cells[y];
+    if (!row) continue;
+    for (let x = 0; x < maze.width; x++) {
+      if (row[x] === 'floor') continue;
+      const key = coordinateToKey({ x, y });
+      const x0 = x * cellSize;
+      const y0 = y * cellSize;
+      const x1 = x0 + cellSize;
+      const y1 = y0 + cellSize;
+      // Top edge: light if cell above is not a wall
+      if (maze.cells[y - 1]?.[x] === 'floor' || y === 0) {
+        bevelElements.push(<line key={`${key}-bt`} x1={x0} y1={y0} x2={x1} y2={y0} stroke="rgba(255,255,255,0.12)" strokeWidth={BEVEL_W} />);
+      }
+      // Left edge: light if cell to left is not a wall
+      if (maze.cells[y]?.[x - 1] === 'floor' || x === 0) {
+        bevelElements.push(<line key={`${key}-bl`} x1={x0} y1={y0} x2={x0} y2={y1} stroke="rgba(255,255,255,0.12)" strokeWidth={BEVEL_W} />);
+      }
+      // Bottom edge: dark if cell below is not a wall
+      if (maze.cells[y + 1]?.[x] === 'floor' || y === maze.height - 1) {
+        bevelElements.push(<line key={`${key}-bb`} x1={x0} y1={y1} x2={x1} y2={y1} stroke="rgba(0,0,0,0.25)" strokeWidth={BEVEL_W} />);
+      }
+      // Right edge: dark if cell to right is not a wall
+      if (maze.cells[y]?.[x + 1] === 'floor' || x === maze.width - 1) {
+        bevelElements.push(<line key={`${key}-br`} x1={x1} y1={y0} x2={x1} y2={y1} stroke="rgba(0,0,0,0.25)" strokeWidth={BEVEL_W} />);
+      }
+    }
+  }
+
   return (
     <svg
       width={size}
@@ -381,7 +414,10 @@ export function MazeRenderer({
         />
       )}
 
-      {/* 3. Floor cells */}
+      {/* 3. Wall bevels — after overlay so they're visible on top of texture */}
+      {bevelElements}
+
+      {/* 4. Floor cells */}
       {floorElements}
 
       {/* 4. Ball effect (between floors and ball) */}
