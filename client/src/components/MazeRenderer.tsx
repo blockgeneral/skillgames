@@ -5,7 +5,7 @@ import type { BallEffectId, BackgroundEffectId, BallSample, CellDrop } from './e
 import { renderBallEffect } from './effects/ballEffects.js';
 import { renderBackgroundEffect } from './effects/backgroundEffects.js';
 
-const MS_PER_CELL = 40;
+const MS_PER_CELL = 32;
 const HISTORY_WINDOW_MS = 450;
 const HISTORY_MAX_SAMPLES = 40;
 const DROP_WINDOW_MS = 800;
@@ -203,8 +203,9 @@ export function MazeRenderer({
           height={cellSize - pad * 2}
           rx={3}
           fill={isPainted ? `url(#painted-tile-${palette.name})` : '#0f1729'}
-          stroke={isPainted ? 'rgba(255,255,255,0.08)' : `rgba(34,211,238,0.10)`}
-          strokeWidth={0.5}
+          stroke={isPainted ? palette.paint1 : 'rgba(34,211,238,0.10)'}
+          strokeWidth={isPainted ? 1.5 : 0.5}
+          strokeOpacity={isPainted ? 0.6 : 1}
           data-cell-key={key}
           data-painted={isPainted ? 'true' : 'false'}
         />
@@ -228,7 +229,7 @@ export function MazeRenderer({
           width={cellSize}
           height={cellSize}
           rx={3}
-          fill="#080d18"
+          fill="#0c1220"
         />
       );
 
