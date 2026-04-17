@@ -177,7 +177,6 @@ export function MazeRenderer({
   const borderGlowElements: JSX.Element[] = [];
   const borderSharpElements: JSX.Element[] = [];
   const floorElements: JSX.Element[] = [];
-  const paintedBloomElements: JSX.Element[] = [];
 
   // Floor pass
   for (let y = 0; y < maze.height; y++) {
@@ -187,23 +186,6 @@ export function MazeRenderer({
       if (row[x] !== 'floor') continue;
       const key = coordinateToKey({ x, y });
       const isPainted = paintedCells.has(key) && !maskedKeys.has(key);
-
-      if (isPainted) {
-        // Bloom behind painted cell
-        paintedBloomElements.push(
-          <rect
-            key={`${key}-bloom`}
-            x={x * cellSize - 4}
-            y={y * cellSize - 4}
-            width={cellSize + 8}
-            height={cellSize + 8}
-            rx={5}
-            fill={palette.paint1}
-            opacity="0.15"
-            filter="url(#bloom)"
-          />
-        );
-      }
 
       floorElements.push(
         <rect
@@ -315,12 +297,6 @@ export function MazeRenderer({
           <stop offset="75%" stopColor={palette.paint1} />
           <stop offset="100%" stopColor={palette.paint2} />
         </radialGradient>
-        <filter id="border-glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="4" />
-        </filter>
-        <filter id="bloom" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="7" />
-        </filter>
         <filter id="ball-glow" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="10" />
         </filter>
@@ -352,14 +328,11 @@ export function MazeRenderer({
         />
       )}
 
-      {/* Wall border glow */}
-      <g filter="url(#border-glow)">{borderGlowElements}</g>
+      {/* Wall border glow (opacity-based, no filter) */}
+      {borderGlowElements}
 
       {/* Wall border sharp */}
       {borderSharpElements}
-
-      {/* Painted cell bloom */}
-      {paintedBloomElements}
 
       {/* Floor cells */}
       {floorElements}
