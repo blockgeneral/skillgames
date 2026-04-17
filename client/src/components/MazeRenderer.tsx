@@ -202,14 +202,27 @@ export function MazeRenderer({
           width={cellSize - pad * 2}
           height={cellSize - pad * 2}
           rx={3}
-          fill={isPainted ? `url(#painted-tile-${palette.name})` : '#0f1729'}
-          stroke={isPainted ? palette.paint1 : 'rgba(34,211,238,0.10)'}
-          strokeWidth={isPainted ? 1.5 : 0.5}
-          strokeOpacity={isPainted ? 0.6 : 1}
+          fill={isPainted ? `url(#painted-tile-${palette.name})` : '#1e293b'}
+          stroke={isPainted ? palette.paint1 : palette.paint1}
+          strokeWidth={isPainted ? 1.5 : 1}
+          strokeOpacity={isPainted ? 0.6 : 0.15}
           data-cell-key={key}
           data-painted={isPainted ? 'true' : 'false'}
         />
       );
+      if (!isPainted) {
+        floorElements.push(
+          <line
+            key={`${key}-highlight`}
+            x1={x * cellSize + pad + 2}
+            y1={y * cellSize + pad + 1}
+            x2={x * cellSize + cellSize - pad - 2}
+            y2={y * cellSize + pad + 1}
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth={1}
+          />
+        );
+      }
     }
   }
 
