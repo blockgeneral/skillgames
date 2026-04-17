@@ -139,8 +139,15 @@ export function MazeRenderer({
 
   const now = performance.now();
   const frame = computeSlideFrame(lastSlidePath, slideStartRef.current, now);
-  const ballX = frame ? frame.ballPos.x : playerPosition.x;
-  const ballY = frame ? frame.ballPos.y : playerPosition.y;
+  let fallbackX = playerPosition.x;
+  let fallbackY = playerPosition.y;
+  if (lastSlidePath && lastSlidePath.length > 0) {
+    const lastCell = lastSlidePath[lastSlidePath.length - 1]!;
+    fallbackX = lastCell.x;
+    fallbackY = lastCell.y;
+  }
+  const ballX = frame ? frame.ballPos.x : fallbackX;
+  const ballY = frame ? frame.ballPos.y : fallbackY;
   const ballCx = ballX * cellSize + cellSize / 2;
   const ballCy = ballY * cellSize + cellSize / 2;
   const playerRadius = cellSize * 0.32;
@@ -256,7 +263,7 @@ export function MazeRenderer({
           <line
             key={`${key}-bg-${ei}`}
             x1={e.lx1} y1={e.ly1} x2={e.lx2} y2={e.ly2}
-            stroke={palette.trail}
+            stroke={palette.wallBorder}
             strokeWidth={4.5}
             opacity={0.25}
           />
@@ -265,7 +272,7 @@ export function MazeRenderer({
           <line
             key={`${key}-bs-${ei}`}
             x1={e.lx1} y1={e.ly1} x2={e.lx2} y2={e.ly2}
-            stroke={palette.trail}
+            stroke={palette.wallBorder}
             strokeWidth={1.5}
             opacity={0.75}
           />
@@ -293,7 +300,7 @@ export function MazeRenderer({
         </linearGradient>
         <radialGradient id="ball-sphere" cx="40%" cy="40%" r="65%">
           <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="25%" stopColor={palette.paint1} />
+          <stop offset="25%" stopColor={palette.ballBright} />
           <stop offset="75%" stopColor={palette.paint1} />
           <stop offset="100%" stopColor={palette.paint2} />
         </radialGradient>
