@@ -153,12 +153,26 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const progress = calculateProgress(newMazeState);
       const won = isPaintComplete(newMazeState);
 
+      // On win, truncate the visual slide path to end at the last freshly
+      // painted cell — the cell whose painting triggers 100%.
+      let visualPath = path;
+      if (won && freshCells.length > 0) {
+        const lastFresh = freshCells[freshCells.length - 1]!;
+        const lastFreshKey = coordinateToKey(lastFresh);
+        for (let i = path.length - 1; i >= 0; i--) {
+          if (coordinateToKey(path[i]!) === lastFreshKey) {
+            visualPath = path.slice(0, i + 1);
+            break;
+          }
+        }
+      }
+
       return {
         ...state,
         mazeState: newMazeState,
         progress,
         status: won ? 'won' : state.status,
-        lastSlidePath: path,
+        lastSlidePath: visualPath,
         lastSlideFreshCells: freshCells,
         lastSlideAt: Date.now(),
       };

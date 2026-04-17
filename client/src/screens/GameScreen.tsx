@@ -1,13 +1,15 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { MazeRenderer } from '../components/MazeRenderer.js';
-import { DevEffectsPanel, useEffectSelection } from '../components/DevEffectsPanel.js';
 import type { GameState, Direction } from '../state/gameReducer.js';
+import type { BallEffectId, BackgroundEffectId } from '../components/effects/types.js';
 
 export interface GameScreenProps {
   state: GameState;
   onMove: (direction: Direction) => void;
   onTick: () => void;
   onTogglePause: () => void;
+  ballEffect: BallEffectId;
+  backgroundEffect: BackgroundEffectId;
 }
 
 function keyToDirection(key: string): Direction | null {
@@ -43,11 +45,12 @@ export function GameScreen({
   onMove,
   onTick,
   onTogglePause,
+  ballEffect,
+  backgroundEffect,
 }: GameScreenProps): JSX.Element {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastMoveTimeRef = useRef<number>(0);
   const [mazeSize, setMazeSize] = useState(0);
-  const [effectSelection, setEffectSelection] = useEffectSelection();
 
   const cols = state.mazeState.maze.width;
   const rows = state.mazeState.maze.height;
@@ -155,10 +158,6 @@ export function GameScreen({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      {import.meta.env.DEV && (
-        <DevEffectsPanel selection={effectSelection} onChange={setEffectSelection} />
-      )}
-
       <div className="flex justify-between items-center w-full max-w-md mb-3 gap-4">
         <div className="flex flex-col items-start">
           <span className="text-xs text-slate-400">Time</span>
@@ -200,8 +199,8 @@ export function GameScreen({
             lastSlidePath={state.lastSlidePath}
             lastSlideFreshCells={state.lastSlideFreshCells}
             lastSlideAt={state.lastSlideAt}
-            ballEffect={effectSelection.ball}
-            backgroundEffect={effectSelection.background}
+            ballEffect={ballEffect}
+            backgroundEffect={backgroundEffect}
           />
         )}
 

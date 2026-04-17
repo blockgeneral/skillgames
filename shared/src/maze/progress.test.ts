@@ -263,7 +263,7 @@ describe('calculateProgress', () => {
     });
 
     it('returns correct progress for generated maze with obstacles', () => {
-      const maze = generateMaze('a'.repeat(64), 'easy');
+      const maze = generateMaze('a'.repeat(64), 'medium');
       const state = createInitialGameState(maze);
       const floorCount = countFloorCells(maze);
       // Initial state has 1 cell painted

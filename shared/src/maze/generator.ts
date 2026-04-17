@@ -1,6 +1,7 @@
 import type { CellType, Coordinate, Difficulty, MazeState, Seed } from '../types.js';
 import { DIFFICULTY_CONFIGS } from '../types.js';
 import { createPrng } from '../prng.js';
+import { hasDeadEnds } from './quality.js';
 
 const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
 type Dir = (typeof DIRECTIONS)[number];
@@ -192,7 +193,7 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
   const floorTargetMin = Math.floor(carveable * 0.70);
   const floorTargetMax = Math.floor(carveable * 0.80);
   const solutionMoveBudget = Math.floor(floorTargetMax * 1.2);
-  const stopProb = difficulty === 'easy' ? 0.20 : difficulty === 'medium' ? 0.17 : 0.13;
+  const stopProb = difficulty === 'medium' ? 0.17 : 0.13;
 
   const startTime = Date.now();
 
@@ -205,7 +206,8 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
     if (floors < floorTargetMin || floors > floorTargetMax) continue;
     const painted = replayPainted(r.grid, width, height, r.start, r.recorded);
     if (!allFloorsPainted(r.grid, width, height, painted)) continue;
-    return {
+
+    const candidate: MazeState = {
       seed,
       width,
       height,
@@ -213,6 +215,40 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
       startPosition: Object.freeze({ ...r.start }),
       minimumMoveLowerBound: r.recorded.length,
     };
+
+    // Dead-end quality gate: retry with derived seeds if the level has dead ends.
+    if (!hasDeadEnds(candidate)) return candidate;
+
+    const DEAD_END_RETRIES = 10;
+    let lastCandidate = candidate;
+    for (let dei = 1; dei <= DEAD_END_RETRIES; dei++) {
+      const derivedSeed = `${seed}:${dei}`;
+      const dims = pickDimensions(derivedSeed as Seed, config);
+      const deCarve = (dims.width - 2) * (dims.height - 2) + 1;
+      const deFloorMin = Math.floor(deCarve * 0.70);
+      const deFloorMax = Math.floor(deCarve * 0.80);
+      const deBudget = Math.floor(deFloorMax * 1.2);
+      for (let da = 0; da < MAX_ATTEMPTS; da++) {
+        const dr = generateAttempt(derivedSeed as Seed, dims.width, dims.height, deBudget, stopProb, deFloorMax, da);
+        const df = countFloors(dr.grid);
+        if (df < deFloorMin || df > deFloorMax) continue;
+        const dp = replayPainted(dr.grid, dims.width, dims.height, dr.start, dr.recorded);
+        if (!allFloorsPainted(dr.grid, dims.width, dims.height, dp)) continue;
+        const dc: MazeState = {
+          seed,
+          width: dims.width,
+          height: dims.height,
+          cells: freezeGrid(dr.grid),
+          startPosition: Object.freeze({ ...dr.start }),
+          minimumMoveLowerBound: dr.recorded.length,
+        };
+        if (!hasDeadEnds(dc)) return dc;
+        lastCandidate = dc;
+        break;
+      }
+    }
+    console.warn('Generator: all retry attempts had dead ends');
+    return lastCandidate;
   }
   throw new Error(`GeneratorConstraintsUnmet: could not produce valid ${difficulty} level for seed ${seed.slice(0, 12)}... after ${MAX_ATTEMPTS} attempts`);
 }

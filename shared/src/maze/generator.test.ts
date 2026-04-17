@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { generateMaze } from './generator.js';
 import { simulateSlide } from './painter.js';
+import { hasDeadEnds } from './quality.js';
 import type { Difficulty, MazeState, Coordinate, CellType } from '../types.js';
 
-const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
+const DIFFICULTIES: Difficulty[] = ['medium', 'hard'];
 
 /**
  * BFS over slide-reachable positions. From each reachable stopping position,
@@ -184,7 +185,7 @@ describe('generateMaze — shape diversity', () => {
         } catch { /* accepted below */ }
       }
       const spread = Math.max(...obstCounts) - Math.min(...obstCounts);
-      const minSpread = difficulty === 'easy' ? 5 : difficulty === 'medium' ? 10 : 12;
+      const minSpread = difficulty === 'medium' ? 10 : 12;
       console.log(`[${difficulty}] diversity: ok=${ok}/100 unique=${grids.size}/${ok} obstSpread=${spread} (min=${Math.min(...obstCounts)} max=${Math.max(...obstCounts)}) minSpread=${minSpread}`);
       expect(ok).toBeGreaterThanOrEqual(95);
       expect(grids.size).toBeGreaterThanOrEqual(Math.floor(ok * 0.95));
@@ -237,12 +238,32 @@ describe('generateMaze — timing (hard)', () => {
   });
 });
 
+describe('generateMaze — no dead ends', () => {
+  for (const difficulty of DIFFICULTIES) {
+    it(`no dead ends in generated mazes (${difficulty}, 30 seeds)`, () => {
+      const failures: string[] = [];
+      for (let i = 0; i < 30; i++) {
+        const seed = i.toString(16).padStart(64, '0');
+        const maze = tryGenerate(seed, difficulty);
+        if (!maze) continue;
+        if (hasDeadEnds(maze)) {
+          failures.push(`seed=${seed.slice(0, 8)} difficulty=${difficulty}`);
+        }
+      }
+      if (failures.length > 0) {
+        console.log(`Dead-end failures: ${failures.join(', ')}`);
+      }
+      expect(failures).toHaveLength(0);
+    });
+  }
+});
+
 describe('generateMaze — input validation', () => {
   it('throws on non-hex seed', () => {
-    expect(() => generateMaze('not-hex', 'easy')).toThrow();
+    expect(() => generateMaze('not-hex', 'medium')).toThrow();
   });
   it('throws on wrong-length seed', () => {
-    expect(() => generateMaze('a'.repeat(63), 'easy')).toThrow();
+    expect(() => generateMaze('a'.repeat(63), 'medium')).toThrow();
   });
   it('throws on invalid difficulty', () => {
     expect(() => generateMaze('a'.repeat(64), 'invalid' as Difficulty)).toThrow();

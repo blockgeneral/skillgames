@@ -19,7 +19,7 @@ function render(cells: ReadonlyArray<ReadonlyArray<CellType>>, sx: number, sy: n
   return lines.join('\n');
 }
 
-const difficulties: Difficulty[] = ['easy', 'medium', 'hard'];
+const difficulties: Difficulty[] = ['medium', 'hard'];
 for (const d of difficulties) {
   console.log(`\n========== ${d} ==========`);
   const times: number[] = [];

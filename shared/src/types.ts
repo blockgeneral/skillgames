@@ -12,7 +12,7 @@
 export type Seed = string;
 
 /** Difficulty determines grid size and obstacle density. */
-export type Difficulty = 'easy' | 'medium' | 'hard';
+export type Difficulty = 'medium' | 'hard';
 
 /** Direction of ball movement in the slide puzzle. */
 export type Direction = 'up' | 'down' | 'left' | 'right';
@@ -41,7 +41,6 @@ export interface DifficultyConfig {
 }
 
 export const DIFFICULTY_CONFIGS: Readonly<Record<Difficulty, DifficultyConfig>> = {
-  easy:   { widthMin: 6,  widthMax: 8,  heightMin: 7,  heightMax: 8  },
   medium: { widthMin: 10, widthMax: 12, heightMin: 12, heightMax: 14 },
   hard:   { widthMin: 14, widthMax: 17, heightMin: 17, heightMax: 18 },
 };

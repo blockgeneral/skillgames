@@ -1,24 +1,29 @@
 import { useState } from 'react';
 import type { Difficulty } from '@skillgames/shared';
 import { DIFFICULTY_CONFIGS } from '@skillgames/shared';
+import type { BallEffectId, BackgroundEffectId } from '../components/effects/types.js';
+import { BALL_EFFECT_OPTIONS, BACKGROUND_EFFECT_OPTIONS } from '../components/effects/types.js';
 
-/**
- * Props for the HomeScreen component.
- */
 export interface HomeScreenProps {
   onStartGame: (difficulty: Difficulty) => void;
+  ballEffect: BallEffectId;
+  backgroundEffect: BackgroundEffectId;
+  onBallEffectChange: (id: BallEffectId) => void;
+  onBackgroundEffectChange: (id: BackgroundEffectId) => void;
 }
 
 const DIFFICULTY_OPTIONS: Array<{ value: Difficulty; label: string }> = [
-  { value: 'easy', label: 'Easy' },
   { value: 'medium', label: 'Medium' },
   { value: 'hard', label: 'Hard' },
 ];
 
-/**
- * Home screen with title, difficulty selector, and play button.
- */
-export function HomeScreen({ onStartGame }: HomeScreenProps): JSX.Element {
+export function HomeScreen({
+  onStartGame,
+  ballEffect,
+  backgroundEffect,
+  onBallEffectChange,
+  onBackgroundEffectChange,
+}: HomeScreenProps): JSX.Element {
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
 
   const handlePlay = (): void => {
@@ -64,6 +69,37 @@ export function HomeScreen({ onStartGame }: HomeScreenProps): JSX.Element {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Effects selection */}
+        <div className="flex flex-col gap-3 w-full">
+          <p className="text-sm text-slate-400 text-center">Effects</p>
+          <div className="flex gap-3 w-full">
+            <label className="flex-1">
+              <span className="block text-xs text-slate-500 mb-1">Ball</span>
+              <select
+                value={ballEffect}
+                onChange={(e) => onBallEffectChange(e.target.value as BallEffectId)}
+                className="w-full bg-slate-800 text-slate-100 border border-slate-700 rounded-lg px-2 py-2 text-sm"
+              >
+                {BALL_EFFECT_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex-1">
+              <span className="block text-xs text-slate-500 mb-1">Background</span>
+              <select
+                value={backgroundEffect}
+                onChange={(e) => onBackgroundEffectChange(e.target.value as BackgroundEffectId)}
+                className="w-full bg-slate-800 text-slate-100 border border-slate-700 rounded-lg px-2 py-2 text-sm"
+              >
+                {BACKGROUND_EFFECT_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 

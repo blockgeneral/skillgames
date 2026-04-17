@@ -17,7 +17,7 @@ afterEach(() => {
 /**
  * Creates a test game state with a known seed and difficulty.
  */
-function createTestState(difficulty: Difficulty = 'easy'): MazeGameState {
+function createTestState(difficulty: Difficulty = 'medium'): MazeGameState {
   const seed = 'a'.repeat(64);
   const maze = generateMaze(seed, difficulty);
   return createInitialGameState(maze);
@@ -60,7 +60,7 @@ describe('MazeRenderer', () => {
 
   describe('stability', () => {
     it('produces stable SVG output for known input state', () => {
-      const state = createTestState('easy');
+      const state = createTestState('medium');
       const size = 300;
 
       // Render twice and compare
@@ -95,7 +95,7 @@ describe('MazeRenderer', () => {
   describe('different difficulties', () => {
     it('renders easy maze', () => {
       const seed = 'b'.repeat(64);
-      const maze = generateMaze(seed, 'easy');
+      const maze = generateMaze(seed, 'medium');
       const state = createInitialGameState(maze);
 
       const { container } = render(<MazeRenderer state={state} size={300} />);
@@ -161,7 +161,7 @@ describe('MazeRenderer', () => {
   describe('player position', () => {
     it('positions player marker at start position', () => {
       const seed = 'f'.repeat(64);
-      const maze = generateMaze(seed, 'easy');
+      const maze = generateMaze(seed, 'medium');
       const state = createInitialGameState(maze);
       const size = 300;
       const cellSize = size / maze.width;
@@ -178,7 +178,7 @@ describe('MazeRenderer', () => {
 
     it('positions player marker correctly at different position', () => {
       const seed = '7'.repeat(64);
-      const maze = generateMaze(seed, 'easy');
+      const maze = generateMaze(seed, 'medium');
       const baseState = createInitialGameState(maze);
       const size = 300;
       const cellSize = size / maze.width;

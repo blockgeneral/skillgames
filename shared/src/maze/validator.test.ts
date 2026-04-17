@@ -192,7 +192,7 @@ describe('isValidGameState', () => {
     });
 
     it('returns valid for generated maze', () => {
-      const maze = generateMaze('a'.repeat(64), 'easy');
+      const maze = generateMaze('a'.repeat(64), 'medium');
       const state = createInitialGameState(maze);
       const result = isValidGameState(state);
       expect(result.valid).toBe(true);

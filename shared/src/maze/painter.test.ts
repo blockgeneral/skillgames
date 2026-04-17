@@ -287,7 +287,7 @@ describe('applyMove', () => {
 
   describe('determinism', () => {
     it('produces identical results for same sequence of moves (100 iterations)', () => {
-      const maze = generateMaze('a'.repeat(64), 'easy');
+      const maze = generateMaze('a'.repeat(64), 'medium');
 
       // Build a sequence of moves
       const moves: PaintMove[] = [

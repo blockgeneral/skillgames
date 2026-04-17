@@ -8,19 +8,15 @@ import {
   createGameState,
   type Direction,
 } from './state/gameReducer.js';
+import type { BallEffectId, BackgroundEffectId } from './components/effects/types.js';
 
-/**
- * Screen states for navigation.
- */
 type Screen = 'home' | 'game' | 'result';
 
-/**
- * Main application component.
- * Manages screen navigation and game state.
- */
 export function App(): JSX.Element {
   const [screen, setScreen] = useState<Screen>('home');
   const [gameState, dispatch] = useReducer(gameReducer, createGameState('medium'));
+  const [ballEffect, setBallEffect] = useState<BallEffectId>('none');
+  const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffectId>('none');
 
   const handleStartGame = useCallback((difficulty: Difficulty): void => {
     dispatch({ type: 'RESET', difficulty });
@@ -49,9 +45,6 @@ export function App(): JSX.Element {
   }, []);
 
   // Transition to result screen when game ends.
-  // On win, delay so the final slide animation completes before the maze
-  // disappears. Slide duration = (pathLen - 1) * 40ms + 200ms visual buffer.
-  // On timeout, transition immediately.
   useEffect(() => {
     if (screen !== 'game' || gameState.status === 'playing') return;
 
@@ -60,7 +53,6 @@ export function App(): JSX.Element {
       return;
     }
 
-    // status === 'won'
     const pathLen = gameState.lastSlidePath?.length ?? 0;
     const slideMs = Math.max(0, (pathLen - 1) * 40) + 200;
     const timer = setTimeout(() => setScreen('result'), slideMs);
@@ -69,13 +61,23 @@ export function App(): JSX.Element {
 
   return (
     <>
-      {screen === 'home' && <HomeScreen onStartGame={handleStartGame} />}
+      {screen === 'home' && (
+        <HomeScreen
+          onStartGame={handleStartGame}
+          ballEffect={ballEffect}
+          backgroundEffect={backgroundEffect}
+          onBallEffectChange={setBallEffect}
+          onBackgroundEffectChange={setBackgroundEffect}
+        />
+      )}
       {screen === 'game' && (
         <GameScreen
           state={gameState}
           onMove={handleMove}
           onTick={handleTick}
           onTogglePause={handleTogglePause}
+          ballEffect={ballEffect}
+          backgroundEffect={backgroundEffect}
         />
       )}
       {screen === 'result' && (
