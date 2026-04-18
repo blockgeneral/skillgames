@@ -69,7 +69,7 @@ export function MazeRenderer({
   const cellSize = size / maze.width;
   const WALL_H = cellSize * 0.25;
   const svgHeight = size * (maze.height / maze.width);
-  const pad = 1;
+  const pad = 0.5;
 
   const palette: NeonPalette = getPaletteForSeed(maze.seed);
 
@@ -181,7 +181,6 @@ export function MazeRenderer({
   // --- Render passes ---
   const wallElements: JSX.Element[] = [];
   const wallMaskRects: JSX.Element[] = [];
-  const borderGlowElements: JSX.Element[] = [];
   const borderSharpElements: JSX.Element[] = [];
   const floorElements: JSX.Element[] = [];
 
@@ -260,15 +259,6 @@ export function MazeRenderer({
 
       for (let ei = 0; ei < edges.length; ei++) {
         const e = edges[ei]!;
-        borderGlowElements.push(
-          <line
-            key={`${key}-bg-${ei}`}
-            x1={e.lx1} y1={e.ly1} x2={e.lx2} y2={e.ly2}
-            stroke={palette.wallBorder}
-            strokeWidth={4.5}
-            opacity={0.25}
-          />
-        );
         borderSharpElements.push(
           <line
             key={`${key}-bs-${ei}`}
@@ -335,9 +325,6 @@ export function MazeRenderer({
           mask="url(#wall-overlay-mask)"
         />
       )}
-
-      {/* Wall border glow (opacity-based, no filter) */}
-      {borderGlowElements}
 
       {/* Wall border sharp */}
       {borderSharpElements}
