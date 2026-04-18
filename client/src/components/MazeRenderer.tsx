@@ -202,7 +202,7 @@ export function MazeRenderer({
           width={cellSize - pad * 2}
           height={cellSize - pad * 2}
           rx={3}
-          fill={isPainted ? `url(#painted-tile-${palette.name})` : '#1e293b'}
+          fill={isPainted ? `url(#painted-tile-${palette.name})` : '#243b5e'}
           stroke={isPainted ? palette.paint1 : palette.paint1}
           strokeWidth={isPainted ? 1.5 : 1}
           strokeOpacity={isPainted ? 0.6 : 0.15}
