@@ -142,10 +142,11 @@ export function GameScreen({
     return () => clearInterval(interval);
   }, [state.status, state.paused, onTick]);
 
+  const isTimeless = state.maxSeconds >= 99999;
   const timeRemaining = state.maxSeconds - state.elapsedSeconds;
   const minutes = Math.floor(timeRemaining / 60);
   const seconds = timeRemaining % 60;
-  const timeDisplay = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const timeDisplay = isTimeless ? '\u221E' : `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
   const handleDirectionClick = (direction: Direction) => (): void => {
     handleThrottledMove(direction);
@@ -163,7 +164,7 @@ export function GameScreen({
           <span className="text-xs text-slate-400">Time</span>
           <span
             className={`text-2xl font-bold tabular-nums ${
-              timeRemaining <= 10 ? 'text-red-400' : 'text-white'
+              !isTimeless && timeRemaining <= 10 ? 'text-red-400' : 'text-white'
             }`}
           >
             {timeDisplay}

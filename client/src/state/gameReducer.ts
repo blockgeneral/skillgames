@@ -65,7 +65,7 @@ export interface GameState {
 export type GameAction =
   | { type: 'MOVE'; direction: Direction }
   | { type: 'TICK' }
-  | { type: 'RESET'; difficulty: Difficulty }
+  | { type: 'RESET'; difficulty: Difficulty; timeless?: boolean }
   | { type: 'RESET_SAME_MAZE' }
   | { type: 'TOGGLE_PAUSE' };
 
@@ -75,7 +75,8 @@ export type GameAction =
 function createGameStateFromMaze(
   maze: MazeState,
   seed: Seed,
-  difficulty: Difficulty
+  difficulty: Difficulty,
+  timeless = false,
 ): GameState {
   const mazeState = createInitialGameState(maze);
 
@@ -83,7 +84,7 @@ function createGameStateFromMaze(
     mazeState,
     seed,
     elapsedSeconds: 0,
-    maxSeconds: 60,
+    maxSeconds: timeless ? 99999 : 60,
     status: 'playing',
     difficulty,
     progress: calculateProgress(mazeState),
@@ -97,10 +98,10 @@ function createGameStateFromMaze(
 /**
  * Creates initial game state for a given difficulty.
  */
-export function createGameState(difficulty: Difficulty): GameState {
+export function createGameState(difficulty: Difficulty, timeless = false): GameState {
   const seed = generateSeed();
   const maze = generateMaze(seed, difficulty);
-  return createGameStateFromMaze(maze, seed, difficulty);
+  return createGameStateFromMaze(maze, seed, difficulty, timeless);
 }
 
 /**
@@ -195,7 +196,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'RESET': {
-      return createGameState(action.difficulty);
+      return createGameState(action.difficulty, action.timeless);
     }
 
     case 'RESET_SAME_MAZE': {

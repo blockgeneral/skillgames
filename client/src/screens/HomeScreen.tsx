@@ -10,6 +10,8 @@ export interface HomeScreenProps {
   backgroundEffect: BackgroundEffectId;
   onBallEffectChange: (id: BallEffectId) => void;
   onBackgroundEffectChange: (id: BackgroundEffectId) => void;
+  timeless: boolean;
+  onTimelessChange: (v: boolean) => void;
 }
 
 const DIFFICULTY_OPTIONS: Array<{ value: Difficulty; label: string }> = [
@@ -23,6 +25,8 @@ export function HomeScreen({
   backgroundEffect,
   onBallEffectChange,
   onBackgroundEffectChange,
+  timeless,
+  onTimelessChange,
 }: HomeScreenProps): JSX.Element {
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
 
@@ -71,6 +75,17 @@ export function HomeScreen({
             })}
           </div>
         </div>
+
+        {/* Timeless toggle */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={timeless}
+            onChange={(e) => onTimelessChange(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-400 focus:ring-emerald-400"
+          />
+          <span className="text-sm text-slate-400">Timeless (no timer)</span>
+        </label>
 
         {/* Effects selection */}
         <div className="flex flex-col gap-3 w-full">

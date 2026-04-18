@@ -17,11 +17,12 @@ export function App(): JSX.Element {
   const [gameState, dispatch] = useReducer(gameReducer, createGameState('medium'));
   const [ballEffect, setBallEffect] = useState<BallEffectId>('none');
   const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffectId>('none');
+  const [timeless, setTimeless] = useState(false);
 
   const handleStartGame = useCallback((difficulty: Difficulty): void => {
-    dispatch({ type: 'RESET', difficulty });
+    dispatch({ type: 'RESET', difficulty, timeless });
     setScreen('game');
-  }, []);
+  }, [timeless]);
 
   const handleMove = useCallback((direction: Direction): void => {
     dispatch({ type: 'MOVE', direction });
@@ -68,6 +69,8 @@ export function App(): JSX.Element {
           backgroundEffect={backgroundEffect}
           onBallEffectChange={setBallEffect}
           onBackgroundEffectChange={setBackgroundEffect}
+          timeless={timeless}
+          onTimelessChange={setTimeless}
         />
       )}
       {screen === 'game' && (

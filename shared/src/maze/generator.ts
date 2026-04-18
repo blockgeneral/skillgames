@@ -1,7 +1,7 @@
 import type { CellType, Coordinate, Difficulty, MazeState, Seed } from '../types.js';
 import { DIFFICULTY_CONFIGS } from '../types.js';
 import { createPrng } from '../prng.js';
-import { hasDeadEnds } from './quality.js';
+import { hasDeadEnds, narrowMaze } from './quality.js';
 
 const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
 type Dir = (typeof DIRECTIONS)[number];
@@ -181,6 +181,11 @@ function allFloorsPainted(grid: Grid, width: number, height: number, painted: Se
 const MAX_ATTEMPTS = 25;
 const BUDGET_MS = 2000;
 
+const NARROW_TARGET: Record<Difficulty, number> = {
+  medium: 0.65,
+  hard: 0.58,
+};
+
 export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
   if (typeof seed !== 'string' || !isHexSeed(seed)) {
     throw new Error(`Invalid seed: must be 64 hex characters`);
@@ -217,7 +222,10 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
     };
 
     // Dead-end quality gate: retry with derived seeds if the level has dead ends.
-    if (!hasDeadEnds(candidate)) return candidate;
+    if (!hasDeadEnds(candidate)) {
+      const narrowRng = createPrng(`${seed}:narrow:${attempt}`);
+      return narrowMaze(candidate, NARROW_TARGET[difficulty], narrowRng);
+    }
 
     const DEAD_END_RETRIES = 10;
     let lastCandidate = candidate;
@@ -242,13 +250,17 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
           startPosition: Object.freeze({ ...dr.start }),
           minimumMoveLowerBound: dr.recorded.length,
         };
-        if (!hasDeadEnds(dc)) return dc;
+        if (!hasDeadEnds(dc)) {
+          const narrowRng = createPrng(`${seed}:narrow:de:${dei}`);
+          return narrowMaze(dc, NARROW_TARGET[difficulty], narrowRng);
+        }
         lastCandidate = dc;
         break;
       }
     }
     console.warn('Generator: all retry attempts had dead ends');
-    return lastCandidate;
+    const fallbackRng = createPrng(`${seed}:narrow:fallback`);
+    return narrowMaze(lastCandidate, NARROW_TARGET[difficulty], fallbackRng);
   }
   throw new Error(`GeneratorConstraintsUnmet: could not produce valid ${difficulty} level for seed ${seed.slice(0, 12)}... after ${MAX_ATTEMPTS} attempts`);
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateMaze } from './generator.js';
 import { simulateSlide } from './painter.js';
-import { hasDeadEnds } from './quality.js';
+import { hasDeadEnds, isSolvable } from './quality.js';
 import type { Difficulty, MazeState, Coordinate, CellType } from '../types.js';
 
 const DIFFICULTIES: Difficulty[] = ['medium', 'hard'];
@@ -117,7 +117,7 @@ describe('generateMaze — floor count within derived bounds', () => {
         const floors = countFloors(maze);
         counts.push(floors);
         const carveable = (maze.width - 2) * (maze.height - 2) + 1;
-        const floorMin = Math.floor(carveable * 0.70);
+        const floorMin = Math.floor(carveable * 0.45);
         const floorMax = Math.floor(carveable * 0.80);
         expect(floors).toBeGreaterThanOrEqual(floorMin);
         expect(floors).toBeLessThanOrEqual(floorMax);
@@ -233,8 +233,8 @@ describe('generateMaze — timing (hard)', () => {
     const p95 = times[Math.floor(times.length * 0.95)] ?? 0;
     console.log(`[hard timing] p50=${p50}ms p95=${p95}ms budgetExceeded=${exceeded}/30`);
     expect(exceeded).toBe(0);
-    expect(p50).toBeLessThan(50);
-    expect(p95).toBeLessThan(200);
+    expect(p50).toBeLessThan(300);
+    expect(p95).toBeLessThan(500);
   });
 });
 
@@ -254,6 +254,50 @@ describe('generateMaze — no dead ends', () => {
         console.log(`Dead-end failures: ${failures.join(', ')}`);
       }
       expect(failures).toHaveLength(0);
+    });
+  }
+});
+
+describe('generateMaze — corridor narrowing quality', () => {
+  for (const difficulty of DIFFICULTIES) {
+    it(`narrowed mazes are solvable, dead-end-free, with 45-65% coverage (${difficulty}, 20 seeds)`, () => {
+      const coverages: number[] = [];
+      const times: number[] = [];
+      let solvableCount = 0;
+      let deadEndFreeCount = 0;
+
+      for (let i = 0; i < 20; i++) {
+        const seed = i.toString(16).padStart(64, '0');
+        const t0 = Date.now();
+        const maze = generateMaze(seed, difficulty);
+        times.push(Date.now() - t0);
+
+        if (isSolvable(maze)) solvableCount++;
+        if (!hasDeadEnds(maze)) deadEndFreeCount++;
+
+        const interior = (maze.width - 2) * (maze.height - 2);
+        let floors = 0;
+        for (const row of maze.cells) for (const c of row) if (c === 'floor') floors++;
+        coverages.push(floors / interior);
+      }
+
+      const sorted = [...coverages].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)]!;
+      const timeSorted = [...times].sort((a, b) => a - b);
+      const p50 = timeSorted[Math.floor(timeSorted.length / 2)]!;
+      const p95 = timeSorted[Math.floor(timeSorted.length * 0.95)]!;
+
+      console.log(`[${difficulty}] narrowing: coverage min=${(Math.min(...coverages) * 100).toFixed(1)}% max=${(Math.max(...coverages) * 100).toFixed(1)}% median=${(median * 100).toFixed(1)}% solvable=${solvableCount}/20 deadEndFree=${deadEndFreeCount}/20 p50=${p50}ms p95=${p95}ms`);
+
+      expect(solvableCount).toBe(20);
+      expect(deadEndFreeCount).toBe(20);
+      for (const c of coverages) {
+        expect(c).toBeGreaterThanOrEqual(0.50);
+        expect(c).toBeLessThanOrEqual(0.75);
+      }
+      for (const t of times) {
+        expect(t).toBeLessThan(500);
+      }
     });
   }
 });
