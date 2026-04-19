@@ -1,7 +1,8 @@
 import type { CellType, Coordinate, Difficulty, MazeState, Seed } from '../types.js';
 import { DIFFICULTY_CONFIGS } from '../types.js';
 import { createPrng } from '../prng.js';
-import { hasDeadEnds, narrowMaze } from './quality.js';
+import { simulateSlide } from './painter.js';
+import { hasDeadEnds, isSolvable } from './quality.js';
 
 const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
 type Dir = (typeof DIRECTIONS)[number];
@@ -78,7 +79,6 @@ function generateAttempt(
   const start: Coordinate = { x: 1, y: height - 2 };
   grid[start.y]![start.x] = 'floor';
 
-  // Lock the outer perimeter as permanent obstacles.
   for (let x = 0; x < width; x++) {
     locked.add(`${x},0`);
     locked.add(`${x},${height - 1}`);
@@ -178,13 +178,165 @@ function allFloorsPainted(grid: Grid, width: number, height: number, painted: Se
   return true;
 }
 
+/**
+ * Rectangular block growth narrowing. Grows obstacle blocks from existing
+ * wall edges inward, placing 2×2 to 4×3 blocks. Each placement is validated
+ * for solvability and dead-end freedom.
+ */
+function narrowMaze(
+  cells: CellType[][],
+  width: number,
+  height: number,
+  startX: number,
+  startY: number,
+  targetCoverage: number,
+  rng: () => number,
+): void {
+  const interior = (width - 2) * (height - 2);
+  const targetFloor = Math.floor(interior * targetCoverage);
+
+  const BLOCK_SIZES: [number, number][] = [
+    [2,2],[2,3],[3,2],[3,3],[2,4],[4,2],[3,4],[4,3],
+  ];
+
+  for (let att = 0; att < 300; att++) {
+    let floorCount = 0;
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++)
+        if (cells[y]![x] === 'floor') floorCount++;
+    if (floorCount <= targetFloor) break;
+
+    // Find edge cells: floor cells adjacent to at least one obstacle
+    const edgeCells: { x: number; y: number }[] = [];
+    for (let y = 2; y < height - 2; y++) {
+      for (let x = 2; x < width - 2; x++) {
+        if (cells[y]![x] !== 'floor') continue;
+        if (x === startX && y === startY) continue;
+        let adjacent = false;
+        for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]] as const) {
+          if (cells[y + dy]?.[x + dx] === 'obstacle') { adjacent = true; break; }
+        }
+        if (adjacent) edgeCells.push({ x, y });
+      }
+    }
+    if (edgeCells.length === 0) break;
+
+    const anchor = edgeCells[Math.floor(rng() * edgeCells.length)]!;
+
+    // Shuffle block sizes
+    const sizes = [...BLOCK_SIZES];
+    for (let i = sizes.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [sizes[i]!, sizes[j]!] = [sizes[j]!, sizes[i]!];
+    }
+
+    let placed = false;
+    for (const [bw, bh] of sizes) {
+      if (placed) break;
+      const offsets: [number, number][] = [[0,0],[-bw+1,0],[0,-bh+1],[-bw+1,-bh+1]];
+      for (let oi = offsets.length - 1; oi > 0; oi--) {
+        const j = Math.floor(rng() * (oi + 1));
+        [offsets[oi]!, offsets[j]!] = [offsets[j]!, offsets[oi]!];
+      }
+
+      for (const [ox, oy] of offsets) {
+        if (placed) break;
+        const sx = anchor.x + ox, sy = anchor.y + oy;
+        const blockCells: { x: number; y: number }[] = [];
+        let valid = true;
+
+        for (let dy = 0; dy < bh && valid; dy++) {
+          for (let dx = 0; dx < bw && valid; dx++) {
+            const cx = sx + dx, cy = sy + dy;
+            if (cx <= 0 || cx >= width - 1 || cy <= 0 || cy >= height - 1) { valid = false; break; }
+            if (cells[cy]![cx] !== 'floor') { valid = false; break; }
+            if (cx === startX && cy === startY) { valid = false; break; }
+            blockCells.push({ x: cx, y: cy });
+          }
+        }
+        if (!valid || blockCells.length < 4) continue;
+
+        // Block must touch at least one existing obstacle (not itself)
+        let touchesWall = false;
+        const blockSet = new Set(blockCells.map(c => `${c.x},${c.y}`));
+        for (const c of blockCells) {
+          for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]] as const) {
+            const nx = c.x + dx, ny = c.y + dy;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height &&
+                cells[ny]![nx] === 'obstacle' && !blockSet.has(`${nx},${ny}`)) {
+              touchesWall = true; break;
+            }
+          }
+          if (touchesWall) break;
+        }
+        if (!touchesWall) continue;
+
+        // Place block
+        for (const c of blockCells) cells[c.y]![c.x] = 'obstacle';
+
+        // Validate solvability
+        const mazeCheck: MazeState = {
+          seed: '', width, height,
+          cells: cells as ReadonlyArray<ReadonlyArray<CellType>>,
+          startPosition: { x: startX, y: startY },
+          minimumMoveLowerBound: 0,
+        };
+        if (!isSolvable(mazeCheck)) {
+          for (const c of blockCells) cells[c.y]![c.x] = 'floor';
+          continue;
+        }
+
+        // Validate no dead ends nearby
+        let hasDe = false;
+        for (const c of blockCells) {
+          for (let dy2 = -2; dy2 <= 2 && !hasDe; dy2++) {
+            for (let dx2 = -2; dx2 <= 2 && !hasDe; dx2++) {
+              const nx = c.x + dx2, ny = c.y + dy2;
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height && cells[ny]![nx] === 'floor') {
+                let exits = 0;
+                for (const d of DIRECTIONS) {
+                  if (simulateSlide(cells as ReadonlyArray<ReadonlyArray<CellType>>, nx, ny, d, width, height).path.length > 1) exits++;
+                }
+                if (exits <= 1) hasDe = true;
+              }
+            }
+          }
+        }
+        if (hasDe) {
+          for (const c of blockCells) cells[c.y]![c.x] = 'floor';
+          continue;
+        }
+
+        placed = true;
+      }
+    }
+  }
+}
+
 const MAX_ATTEMPTS = 25;
 const BUDGET_MS = 2000;
 
 const NARROW_TARGET: Record<Difficulty, number> = {
-  medium: 0.65,
-  hard: 0.58,
+  medium: 0.62,
+  hard: 0.55,
 };
+
+function applyNarrowing(maze: MazeState, difficulty: Difficulty, rng: () => number): MazeState {
+  // Clone cells into mutable grid
+  const grid: CellType[][] = [];
+  for (let y = 0; y < maze.height; y++) {
+    const row: CellType[] = [];
+    for (let x = 0; x < maze.width; x++) row.push(maze.cells[y]![x]!);
+    grid.push(row);
+  }
+
+  narrowMaze(grid, maze.width, maze.height, maze.startPosition.x, maze.startPosition.y, NARROW_TARGET[difficulty], rng);
+
+  return {
+    ...maze,
+    cells: freezeGrid(grid),
+  };
+}
 
 export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
   if (typeof seed !== 'string' || !isHexSeed(seed)) {
@@ -221,10 +373,9 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
       minimumMoveLowerBound: r.recorded.length,
     };
 
-    // Dead-end quality gate: retry with derived seeds if the level has dead ends.
     if (!hasDeadEnds(candidate)) {
       const narrowRng = createPrng(`${seed}:narrow:${attempt}`);
-      return narrowMaze(candidate, NARROW_TARGET[difficulty], narrowRng);
+      return applyNarrowing(candidate, difficulty, narrowRng);
     }
 
     const DEAD_END_RETRIES = 10;
@@ -252,7 +403,7 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
         };
         if (!hasDeadEnds(dc)) {
           const narrowRng = createPrng(`${seed}:narrow:de:${dei}`);
-          return narrowMaze(dc, NARROW_TARGET[difficulty], narrowRng);
+          return applyNarrowing(dc, difficulty, narrowRng);
         }
         lastCandidate = dc;
         break;
@@ -260,7 +411,7 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
     }
     console.warn('Generator: all retry attempts had dead ends');
     const fallbackRng = createPrng(`${seed}:narrow:fallback`);
-    return narrowMaze(lastCandidate, NARROW_TARGET[difficulty], fallbackRng);
+    return applyNarrowing(lastCandidate, difficulty, fallbackRng);
   }
   throw new Error(`GeneratorConstraintsUnmet: could not produce valid ${difficulty} level for seed ${seed.slice(0, 12)}... after ${MAX_ATTEMPTS} attempts`);
 }

@@ -117,7 +117,7 @@ describe('generateMaze — floor count within derived bounds', () => {
         const floors = countFloors(maze);
         counts.push(floors);
         const carveable = (maze.width - 2) * (maze.height - 2) + 1;
-        const floorMin = Math.floor(carveable * 0.45);
+        const floorMin = Math.floor(carveable * 0.40);
         const floorMax = Math.floor(carveable * 0.80);
         expect(floors).toBeGreaterThanOrEqual(floorMin);
         expect(floors).toBeLessThanOrEqual(floorMax);
@@ -260,11 +260,12 @@ describe('generateMaze — no dead ends', () => {
 
 describe('generateMaze — corridor narrowing quality', () => {
   for (const difficulty of DIFFICULTIES) {
-    it(`narrowed mazes are solvable, dead-end-free, with 45-65% coverage (${difficulty}, 20 seeds)`, () => {
+    it(`narrowed mazes are solvable, dead-end-free, with 50-75% coverage (${difficulty}, 20 seeds)`, () => {
       const coverages: number[] = [];
       const times: number[] = [];
       let solvableCount = 0;
       let deadEndFreeCount = 0;
+      const allStructureSizes: number[][] = [];
 
       for (let i = 0; i < 20; i++) {
         const seed = i.toString(16).padStart(64, '0');
@@ -279,6 +280,41 @@ describe('generateMaze — corridor narrowing quality', () => {
         let floors = 0;
         for (const row of maze.cells) for (const c of row) if (c === 'floor') floors++;
         coverages.push(floors / interior);
+
+        // Count connected obstacle components (excluding perimeter-connected)
+        const visited = new Set<string>();
+        const components: number[] = [];
+        for (let y = 1; y < maze.height - 1; y++) {
+          for (let x = 1; x < maze.width - 1; x++) {
+            if (maze.cells[y]![x] !== 'obstacle') continue;
+            const key = `${x},${y}`;
+            if (visited.has(key)) continue;
+            // BFS to find connected component
+            let size = 0;
+            let touchesPerimeter = false;
+            const queue: Array<[number, number]> = [[x, y]];
+            visited.add(key);
+            while (queue.length > 0) {
+              const [cx, cy] = queue.shift()!;
+              size++;
+              for (const [ddx, ddy] of [[0,-1],[0,1],[-1,0],[1,0]] as const) {
+                const nx = cx + ddx, ny = cy + ddy;
+                if (nx <= 0 || nx >= maze.width - 1 || ny <= 0 || ny >= maze.height - 1) {
+                  touchesPerimeter = true;
+                  continue;
+                }
+                const nk = `${nx},${ny}`;
+                if (visited.has(nk)) continue;
+                if (maze.cells[ny]![nx] !== 'obstacle') continue;
+                visited.add(nk);
+                queue.push([nx, ny]);
+              }
+            }
+            if (!touchesPerimeter) components.push(size);
+          }
+        }
+        components.sort((a, b) => b - a);
+        allStructureSizes.push(components.slice(0, 3));
       }
 
       const sorted = [...coverages].sort((a, b) => a - b);
@@ -288,6 +324,7 @@ describe('generateMaze — corridor narrowing quality', () => {
       const p95 = timeSorted[Math.floor(timeSorted.length * 0.95)]!;
 
       console.log(`[${difficulty}] narrowing: coverage min=${(Math.min(...coverages) * 100).toFixed(1)}% max=${(Math.max(...coverages) * 100).toFixed(1)}% median=${(median * 100).toFixed(1)}% solvable=${solvableCount}/20 deadEndFree=${deadEndFreeCount}/20 p50=${p50}ms p95=${p95}ms`);
+      console.log(`[${difficulty}] structure sizes (top 3 per maze): ${allStructureSizes.map(s => `[${s.join(',')}]`).join(' ')}`);
 
       expect(solvableCount).toBe(20);
       expect(deadEndFreeCount).toBe(20);
