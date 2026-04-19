@@ -36,6 +36,54 @@ export function isSolvable(maze: MazeState): boolean {
     for (let x = 0; x < width; x++)
       if (cells[y]?.[x] === 'floor' && !paintable.has(`${x},${y}`))
         return false;
+
+  // Strong connectivity: verify every reachable position can return to start.
+  // Build forward adjacency: position -> set of positions it can reach
+  const forwardEdges = new Map<string, Set<string>>();
+  for (const key of reachable) {
+    const [px, py] = key.split(',').map(Number);
+    const targets = new Set<string>();
+    for (const dir of DIRECTIONS) {
+      const { path } = simulateSlide(cells, px!, py!, dir, width, height);
+      if (path.length > 1) {
+        const end = path[path.length - 1]!;
+        targets.add(`${end.x},${end.y}`);
+      }
+    }
+    forwardEdges.set(key, targets);
+  }
+
+  // Build reverse adjacency
+  const reverseEdges = new Map<string, Set<string>>();
+  for (const key of reachable) reverseEdges.set(key, new Set());
+  for (const [from, targets] of forwardEdges) {
+    for (const to of targets) {
+      reverseEdges.get(to)?.add(from);
+    }
+  }
+
+  // Reverse BFS from start: find all positions that CAN REACH start
+  const startKey = `${sx},${sy}`;
+  const canReachStart = new Set<string>([startKey]);
+  const revQueue: string[] = [startKey];
+  while (revQueue.length > 0) {
+    const current = revQueue.shift()!;
+    const preds = reverseEdges.get(current);
+    if (preds) {
+      for (const pred of preds) {
+        if (!canReachStart.has(pred)) {
+          canReachStart.add(pred);
+          revQueue.push(pred);
+        }
+      }
+    }
+  }
+
+  // Every reachable position must also be able to reach start
+  for (const key of reachable) {
+    if (!canReachStart.has(key)) return false;
+  }
+
   return true;
 }
 

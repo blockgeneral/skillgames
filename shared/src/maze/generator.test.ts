@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateMaze } from './generator.js';
 import { simulateSlide } from './painter.js';
 import { hasDeadEnds, isSolvable } from './quality.js';
-import type { Difficulty, MazeState, Coordinate, CellType } from '../types.js';
+import type { Difficulty, Seed, MazeState, Coordinate, CellType } from '../types.js';
 
 const DIFFICULTIES: Difficulty[] = ['medium', 'hard'];
 
@@ -348,6 +348,23 @@ describe('generateMaze — input validation', () => {
   });
   it('throws on invalid difficulty', () => {
     expect(() => generateMaze('a'.repeat(64), 'invalid' as Difficulty)).toThrow();
+  });
+});
+
+describe('generateMaze — 100-seed solvability stress test', () => {
+  it('100 hard mazes are all solvable and dead-end free after narrowing', () => {
+    const failures: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      const hex = i.toString(16).padStart(64, '0');
+      try {
+        const maze = generateMaze(hex as Seed, 'hard');
+        if (!isSolvable(maze)) failures.push(`${hex.slice(0, 12)}: unsolvable`);
+        if (hasDeadEnds(maze)) failures.push(`${hex.slice(0, 12)}: dead ends`);
+      } catch (e) {
+        failures.push(`${hex.slice(0, 12)}: ${(e as Error).message.slice(0, 50)}`);
+      }
+    }
+    expect(failures).toEqual([]);
   });
 });
 

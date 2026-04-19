@@ -257,6 +257,9 @@ export function GameScreen({
       <p className="text-xs text-slate-500 mt-3 text-center">
         Arrow keys / WASD / Swipe to move
       </p>
+      <p style={{ fontSize: '10px', opacity: 0.3, fontFamily: 'monospace' }} className="text-slate-400 mt-1">
+        {state.mazeState.maze.seed.slice(0, 16)}
+      </p>
     </div>
   );
 }

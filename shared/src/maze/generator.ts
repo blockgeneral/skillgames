@@ -313,7 +313,7 @@ function narrowMaze(
   }
 }
 
-const MAX_ATTEMPTS = 25;
+const MAX_ATTEMPTS = 40;
 const BUDGET_MS = 2000;
 
 const NARROW_TARGET: Record<Difficulty, number> = {
@@ -321,7 +321,7 @@ const NARROW_TARGET: Record<Difficulty, number> = {
   hard: 0.55,
 };
 
-function applyNarrowing(maze: MazeState, difficulty: Difficulty, rng: () => number): MazeState {
+function applyNarrowing(maze: MazeState, difficulty: Difficulty, rng: () => number): MazeState | null {
   // Clone cells into mutable grid
   const grid: CellType[][] = [];
   for (let y = 0; y < maze.height; y++) {
@@ -332,10 +332,30 @@ function applyNarrowing(maze: MazeState, difficulty: Difficulty, rng: () => numb
 
   narrowMaze(grid, maze.width, maze.height, maze.startPosition.x, maze.startPosition.y, NARROW_TARGET[difficulty], rng);
 
-  return {
+  // Check coverage actually reached close to target
+  const target = NARROW_TARGET[difficulty];
+  let floorCount = 0;
+  for (let y = 0; y < maze.height; y++)
+    for (let x = 0; x < maze.width; x++)
+      if (grid[y]![x] === 'floor') floorCount++;
+  const interior = (maze.width - 2) * (maze.height - 2);
+  const coverage = floorCount / interior;
+
+  if (coverage > target + 0.10) return null; // narrowing insufficient
+
+  const narrowed: MazeState = {
     ...maze,
     cells: freezeGrid(grid),
   };
+
+  // Reject if narrowing introduced dead ends or broke solvability
+  if (hasDeadEnds(narrowed) || !isSolvable(narrowed)) return null;
+
+  return narrowed;
+}
+
+function validateFinal(maze: MazeState): boolean {
+  return isSolvable(maze) && !hasDeadEnds(maze);
 }
 
 export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
@@ -375,7 +395,9 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
 
     if (!hasDeadEnds(candidate)) {
       const narrowRng = createPrng(`${seed}:narrow:${attempt}`);
-      return applyNarrowing(candidate, difficulty, narrowRng);
+      const narrowed = applyNarrowing(candidate, difficulty, narrowRng);
+      if (narrowed && validateFinal(narrowed)) return narrowed;
+      continue;
     }
 
     const DEAD_END_RETRIES = 10;
@@ -403,7 +425,9 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
         };
         if (!hasDeadEnds(dc)) {
           const narrowRng = createPrng(`${seed}:narrow:de:${dei}`);
-          return applyNarrowing(dc, difficulty, narrowRng);
+          const narrowed = applyNarrowing(dc, difficulty, narrowRng);
+          if (narrowed && validateFinal(narrowed)) return narrowed;
+          break;
         }
         lastCandidate = dc;
         break;
@@ -411,7 +435,11 @@ export function generateMaze(seed: Seed, difficulty: Difficulty): MazeState {
     }
     console.warn('Generator: all retry attempts had dead ends');
     const fallbackRng = createPrng(`${seed}:narrow:fallback`);
-    return applyNarrowing(lastCandidate, difficulty, fallbackRng);
+    const fallbackNarrowed = applyNarrowing(lastCandidate, difficulty, fallbackRng);
+    if (fallbackNarrowed && validateFinal(fallbackNarrowed)) return fallbackNarrowed;
+    // Un-narrowed candidate is too easy but better than unsolvable
+    if (isSolvable(lastCandidate) && !hasDeadEnds(lastCandidate)) return lastCandidate;
+    continue;
   }
   throw new Error(`GeneratorConstraintsUnmet: could not produce valid ${difficulty} level for seed ${seed.slice(0, 12)}... after ${MAX_ATTEMPTS} attempts`);
 }
