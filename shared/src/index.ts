@@ -3,3 +3,6 @@ export * from './types/quickdraw.js';
 export * from './types/ws.js';
 export * from './types/escrow.js';
 export * from './constants.js';
+export * from './quickdraw/generateRound.js';
+export * from './quickdraw/validation.js';
+export * from './quickdraw/difficulty.js';
