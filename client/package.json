@@ -1,5 +1,5 @@
 {
-  "name": "@skillgames/client",
+  "name": "@skillgamez/client",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@skillgames/shared": "workspace:*",
+    "@skillgamez/shared": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

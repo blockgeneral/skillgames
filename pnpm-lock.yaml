@@ -10,7 +10,7 @@ importers:
 
   client:
     dependencies:
-      '@skillgames/shared':
+      '@skillgamez/shared':
         specifier: workspace:*
         version: link:../shared
       react:
@@ -47,7 +47,7 @@ importers:
 
   contracts:
     dependencies:
-      '@skillgames/shared':
+      '@skillgamez/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -57,7 +57,7 @@ importers:
 
   server:
     dependencies:
-      '@skillgames/shared':
+      '@skillgamez/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
