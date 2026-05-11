@@ -1,5 +1,5 @@
 import type { PlayerId, Timestamp } from '../types/common.js';
-import type { Prompt, RoundResult } from '../types/quickdraw.js';
+import type { Prompt, PromptResult, RoundResult } from '../types/quickdraw.js';
 import { QUICK_DRAW_CONSTANTS } from '../types/quickdraw.js';
 
 export interface TapEvent {
@@ -9,6 +9,8 @@ export interface TapEvent {
   readonly timestamp: Timestamp;
   readonly isTrusted: boolean;
 }
+
+const HITBOX_FORGIVENESS = 1.2;
 
 export function isReactionTimeValid(reactionMs: number): { valid: boolean; reason?: string } {
   if (reactionMs < QUICK_DRAW_CONSTANTS.REACTION_FLOOR_MS) {
@@ -23,14 +25,14 @@ export function isReactionTimeValid(reactionMs: number): { valid: boolean; reaso
 export function isTapOnTarget(tap: { x: number; y: number }, prompt: Prompt): boolean {
   const dx = tap.x - prompt.position.x;
   const dy = tap.y - prompt.position.y;
+  const effectiveSize = prompt.size * HITBOX_FORGIVENESS;
 
   switch (prompt.shape) {
     case 'circle':
     case 'triangle':
-      // Both use bounding circle (circumradius for triangle)
-      return Math.sqrt(dx * dx + dy * dy) <= prompt.size;
+      return Math.sqrt(dx * dx + dy * dy) <= effectiveSize;
     case 'square':
-      return Math.abs(dx) <= prompt.size && Math.abs(dy) <= prompt.size;
+      return Math.abs(dx) <= effectiveSize && Math.abs(dy) <= effectiveSize;
   }
 }
 
@@ -38,147 +40,51 @@ export function isFalseStart(tapTimestamp: Timestamp, promptTimestamp: Timestamp
   return tapTimestamp < promptTimestamp;
 }
 
-export function determineRoundWinner(
-  playerATap: TapEvent | null,
-  playerBTap: TapEvent | null,
-  prompt: Prompt,
-  promptTimestamp: Timestamp,
+/**
+ * Score a round by aggregating 8 prompt results per player.
+ * Lower total time wins.
+ */
+export function scoreRound(
+  playerAResults: PromptResult[],
+  playerBResults: PromptResult[],
+  playerAId: PlayerId,
+  playerBId: PlayerId,
   roundNumber: number,
 ): RoundResult {
-  const aResult = evaluateTap(playerATap, prompt, promptTimestamp);
-  const bResult = evaluateTap(playerBTap, prompt, promptTimestamp);
+  const playerATotalMs = computePlayerTotal(playerAResults);
+  const playerBTotalMs = computePlayerTotal(playerBResults);
 
-  // Both false starts → draw
-  if (aResult.falseStart && bResult.falseStart) {
-    return {
-      roundNumber,
-      winnerId: null,
-      playerAReactionMs: null,
-      playerBReactionMs: null,
-      falseStart: null,
-      draw: true,
-    };
-  }
+  let winnerId: PlayerId | null = null;
+  if (playerATotalMs < playerBTotalMs) winnerId = playerAId;
+  else if (playerBTotalMs < playerATotalMs) winnerId = playerBId;
 
-  // One false start → other player wins
-  if (aResult.falseStart) {
-    return {
-      roundNumber,
-      winnerId: playerBTap?.playerId ?? null,
-      playerAReactionMs: null,
-      playerBReactionMs: bResult.reactionMs,
-      falseStart: playerATap!.playerId,
-      draw: false,
-    };
-  }
-  if (bResult.falseStart) {
-    return {
-      roundNumber,
-      winnerId: playerATap?.playerId ?? null,
-      playerAReactionMs: aResult.reactionMs,
-      playerBReactionMs: null,
-      falseStart: playerBTap!.playerId,
-      draw: false,
-    };
-  }
-
-  // Compare valid taps
-  const aValid = aResult.validReactionMs;
-  const bValid = bResult.validReactionMs;
-
-  if (aValid !== null && bValid !== null) {
-    const diff = Math.abs(aValid - bValid);
-    if (diff <= 1) {
-      return {
-        roundNumber,
-        winnerId: null,
-        playerAReactionMs: aValid,
-        playerBReactionMs: bValid,
-        falseStart: null,
-        draw: true,
-      };
-    }
-    const winnerId = aValid < bValid ? playerATap!.playerId : playerBTap!.playerId;
-    return {
-      roundNumber,
-      winnerId,
-      playerAReactionMs: aValid,
-      playerBReactionMs: bValid,
-      falseStart: null,
-      draw: false,
-    };
-  }
-
-  if (aValid !== null) {
-    return {
-      roundNumber,
-      winnerId: playerATap!.playerId,
-      playerAReactionMs: aValid,
-      playerBReactionMs: bResult.reactionMs,
-      falseStart: null,
-      draw: false,
-    };
-  }
-
-  if (bValid !== null) {
-    return {
-      roundNumber,
-      winnerId: playerBTap!.playerId,
-      playerAReactionMs: aResult.reactionMs,
-      playerBReactionMs: bValid,
-      falseStart: null,
-      draw: false,
-    };
-  }
-
-  // Neither has a valid tap → draw
   return {
     roundNumber,
-    winnerId: null,
-    playerAReactionMs: aResult.reactionMs,
-    playerBReactionMs: bResult.reactionMs,
-    falseStart: null,
-    draw: true,
+    playerAResults,
+    playerBResults,
+    playerATotalMs,
+    playerBTotalMs,
+    winnerId,
   };
 }
 
-interface TapEvaluation {
-  falseStart: boolean;
-  /** Raw reaction time if tap existed and wasn't a false start, else null */
-  reactionMs: number | null;
-  /** Reaction time only if fully valid (on-target, in-range, trusted), else null */
-  validReactionMs: number | null;
-}
-
-function evaluateTap(
-  tap: TapEvent | null,
-  prompt: Prompt,
-  promptTimestamp: Timestamp,
-): TapEvaluation {
-  if (tap === null) {
-    return { falseStart: false, reactionMs: null, validReactionMs: null };
+function computePlayerTotal(results: PromptResult[]): number {
+  let total = 0;
+  for (const r of results) {
+    if (r.falseStart) {
+      total += QUICK_DRAW_CONSTANTS.FALSE_START_PENALTY_MS;
+    } else if (r.timedOut) {
+      total += QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS;
+    } else if (r.missed) {
+      total += QUICK_DRAW_CONSTANTS.MISS_PENALTY_MS;
+    } else if (r.hit && r.reactionMs !== null) {
+      total += r.reactionMs;
+    } else {
+      // No tap / invalid — treated as timeout
+      total += QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS;
+    }
   }
-
-  if (!tap.isTrusted) {
-    return { falseStart: false, reactionMs: null, validReactionMs: null };
-  }
-
-  if (isFalseStart(tap.timestamp, promptTimestamp)) {
-    return { falseStart: true, reactionMs: null, validReactionMs: null };
-  }
-
-  const reactionMs = tap.timestamp - promptTimestamp;
-
-  if (!isTapOnTarget(tap, prompt)) {
-    return { falseStart: false, reactionMs, validReactionMs: null };
-  }
-
-  const validation = isReactionTimeValid(reactionMs);
-  if (!validation.valid) {
-    return { falseStart: false, reactionMs, validReactionMs: null };
-  }
-
-  return { falseStart: false, reactionMs, validReactionMs: reactionMs };
+  return total;
 }
 
 export function determineMatchWinner(
@@ -190,7 +96,6 @@ export function determineMatchWinner(
   let bWins = 0;
 
   for (const round of rounds) {
-    if (round.draw) continue;
     if (round.winnerId === playerAId) aWins++;
     else if (round.winnerId === playerBId) bWins++;
   }

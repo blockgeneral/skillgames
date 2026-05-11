@@ -1,27 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import type { PlayerId } from '../../types/common.js';
-import type { Prompt, RoundResult } from '../../types/quickdraw.js';
+import type { Prompt, PromptResult, RoundResult } from '../../types/quickdraw.js';
+import { QUICK_DRAW_CONSTANTS } from '../../types/quickdraw.js';
 import {
   isReactionTimeValid,
   isTapOnTarget,
   isFalseStart,
-  determineRoundWinner,
+  scoreRound,
   determineMatchWinner,
-  type TapEvent,
 } from '../validation.js';
 
 const PLAYER_A = 'player-a' as PlayerId;
 const PLAYER_B = 'player-b' as PlayerId;
-
-function makeTap(overrides: Partial<TapEvent> & { playerId: PlayerId }): TapEvent {
-  return {
-    x: 0.5,
-    y: 0.5,
-    timestamp: 1000,
-    isTrusted: true,
-    ...overrides,
-  };
-}
 
 function makeCirclePrompt(overrides?: Partial<Prompt>): Prompt {
   return {
@@ -31,6 +21,22 @@ function makeCirclePrompt(overrides?: Partial<Prompt>): Prompt {
     size: 0.1,
     ...overrides,
   };
+}
+
+function makeCleanHit(promptNumber: number, reactionMs: number, playerId: PlayerId): PromptResult {
+  return { promptNumber, playerId, reactionMs, hit: true, falseStart: false, missed: false, timedOut: false };
+}
+
+function makeMiss(promptNumber: number, playerId: PlayerId): PromptResult {
+  return { promptNumber, playerId, reactionMs: null, hit: false, falseStart: false, missed: true, timedOut: false };
+}
+
+function makeFalseStart(promptNumber: number, playerId: PlayerId): PromptResult {
+  return { promptNumber, playerId, reactionMs: null, hit: false, falseStart: true, missed: false, timedOut: false };
+}
+
+function makeTimeout(promptNumber: number, playerId: PlayerId): PromptResult {
+  return { promptNumber, playerId, reactionMs: null, hit: false, falseStart: false, missed: false, timedOut: true };
 }
 
 // ─── isReactionTimeValid ────────────────────────────────────────────────────
@@ -65,18 +71,25 @@ describe('isReactionTimeValid', () => {
 
 describe('isTapOnTarget', () => {
   describe('circle', () => {
-    const prompt = makeCirclePrompt();
+    const prompt = makeCirclePrompt(); // size=0.1, effective=0.12
 
     it('center hit', () => {
       expect(isTapOnTarget({ x: 0.5, y: 0.5 }, prompt)).toBe(true);
     });
 
-    it('edge hit (exactly on boundary)', () => {
+    it('edge hit (at raw boundary)', () => {
+      // 0.1 away from center — within raw radius, definitely a hit
       expect(isTapOnTarget({ x: 0.6, y: 0.5 }, prompt)).toBe(true);
     });
 
-    it('near miss (just outside)', () => {
-      expect(isTapOnTarget({ x: 0.61, y: 0.5 }, prompt)).toBe(false);
+    it('hit within forgiveness margin (15% beyond raw edge)', () => {
+      // 0.115 away from center — beyond raw 0.1 but within 0.12 effective
+      expect(isTapOnTarget({ x: 0.615, y: 0.5 }, prompt)).toBe(true);
+    });
+
+    it('miss beyond forgiveness margin (25% beyond raw edge)', () => {
+      // 0.125 away from center — beyond 0.12 effective
+      expect(isTapOnTarget({ x: 0.625, y: 0.5 }, prompt)).toBe(false);
     });
 
     it('wrong quadrant', () => {
@@ -96,16 +109,17 @@ describe('isTapOnTarget', () => {
       expect(isTapOnTarget({ x: 0.5, y: 0.5 }, prompt)).toBe(true);
     });
 
-    it('corner hit (on boundary)', () => {
+    it('corner hit (at raw boundary)', () => {
       expect(isTapOnTarget({ x: 0.6, y: 0.6 }, prompt)).toBe(true);
     });
 
-    it('edge hit', () => {
-      expect(isTapOnTarget({ x: 0.6, y: 0.5 }, prompt)).toBe(true);
+    it('hit within forgiveness margin', () => {
+      // 0.115 on x axis — beyond raw 0.1 but within 0.12 effective
+      expect(isTapOnTarget({ x: 0.615, y: 0.5 }, prompt)).toBe(true);
     });
 
-    it('just outside', () => {
-      expect(isTapOnTarget({ x: 0.61, y: 0.5 }, prompt)).toBe(false);
+    it('miss beyond forgiveness margin', () => {
+      expect(isTapOnTarget({ x: 0.625, y: 0.5 }, prompt)).toBe(false);
     });
   });
 
@@ -121,12 +135,22 @@ describe('isTapOnTarget', () => {
       expect(isTapOnTarget({ x: 0.5, y: 0.5 }, prompt)).toBe(true);
     });
 
-    it('within bounding circle', () => {
-      expect(isTapOnTarget({ x: 0.59, y: 0.5 }, prompt)).toBe(true);
+    it('within forgiveness margin', () => {
+      // 0.115 distance — within effective 0.12
+      expect(isTapOnTarget({ x: 0.615, y: 0.5 }, prompt)).toBe(true);
     });
 
-    it('just outside bounding circle', () => {
-      expect(isTapOnTarget({ x: 0.61, y: 0.5 }, prompt)).toBe(false);
+    it('just outside forgiveness margin', () => {
+      expect(isTapOnTarget({ x: 0.625, y: 0.5 }, prompt)).toBe(false);
+    });
+  });
+
+  describe('edge tap bug report scenario', () => {
+    it('tap visually on shape but at the edge registers as a hit', () => {
+      // Simulate: circle at (0.5, 0.5), size 0.1
+      // Tap at (0.608, 0.5) — 0.108 away, beyond raw 0.1 but within 0.12 forgiveness
+      const prompt = makeCirclePrompt();
+      expect(isTapOnTarget({ x: 0.608, y: 0.5 }, prompt)).toBe(true);
     });
   });
 });
@@ -147,164 +171,158 @@ describe('isFalseStart', () => {
   });
 });
 
-// ─── determineRoundWinner ───────────────────────────────────────────────────
+// ─── scoreRound ─────────────────────────────────────────────────────────────
 
-describe('determineRoundWinner', () => {
-  const prompt = makeCirclePrompt();
-  const promptTs = 1000;
+describe('scoreRound', () => {
+  it('8 clean hits vs 7 hits + 1 miss → lower total wins', () => {
+    const aResults = Array.from({ length: 8 }, (_, i) => makeCleanHit(i + 1, 300, PLAYER_A));
+    const bResults = [
+      ...Array.from({ length: 7 }, (_, i) => makeCleanHit(i + 1, 300, PLAYER_B)),
+      makeMiss(8, PLAYER_B),
+    ];
 
-  it('A faster → A wins', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1200, x: 0.5, y: 0.5 });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1350, x: 0.5, y: 0.5 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
+    const result = scoreRound(aResults, bResults, PLAYER_A, PLAYER_B, 1);
+
+    // A: 8 * 300 = 2400
+    // B: 7 * 300 + 500 penalty = 2600
+    expect(result.playerATotalMs).toBe(2400);
+    expect(result.playerBTotalMs).toBe(2600);
     expect(result.winnerId).toBe(PLAYER_A);
-    expect(result.draw).toBe(false);
   });
 
-  it('B faster → B wins', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1400, x: 0.5, y: 0.5 });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1200, x: 0.5, y: 0.5 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
+  it('all false starts → huge penalty', () => {
+    const aResults = Array.from({ length: 8 }, (_, i) => makeFalseStart(i + 1, PLAYER_A));
+    const bResults = Array.from({ length: 8 }, (_, i) => makeCleanHit(i + 1, 400, PLAYER_B));
+
+    const result = scoreRound(aResults, bResults, PLAYER_A, PLAYER_B, 1);
+
+    // A: 8 * 1000 = 8000
+    // B: 8 * 400 = 3200
+    expect(result.playerATotalMs).toBe(8000);
+    expect(result.playerBTotalMs).toBe(3200);
     expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.draw).toBe(false);
   });
 
-  it('A false start → B wins', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 999, x: 0.5, y: 0.5 });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1300, x: 0.5, y: 0.5 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
+  it('mixed results scored correctly', () => {
+    const aResults: PromptResult[] = [
+      makeCleanHit(1, 250, PLAYER_A),
+      makeCleanHit(2, 300, PLAYER_A),
+      makeMiss(3, PLAYER_A),          // +500
+      makeCleanHit(4, 280, PLAYER_A),
+      makeFalseStart(5, PLAYER_A),    // +1000
+      makeCleanHit(6, 320, PLAYER_A),
+      makeTimeout(7, PLAYER_A),        // +2000
+      makeCleanHit(8, 290, PLAYER_A),
+    ];
+    const bResults = Array.from({ length: 8 }, (_, i) => makeCleanHit(i + 1, 350, PLAYER_B));
+
+    const result = scoreRound(aResults, bResults, PLAYER_A, PLAYER_B, 1);
+
+    // A: 250+300+500+280+1000+320+2000+290 = 4940
+    expect(result.playerATotalMs).toBe(4940);
+    // B: 8 * 350 = 2800
+    expect(result.playerBTotalMs).toBe(2800);
     expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.falseStart).toBe(PLAYER_A);
-    expect(result.draw).toBe(false);
   });
 
-  it('both false start → draw', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 998, x: 0.5, y: 0.5 });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 999, x: 0.5, y: 0.5 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
+  it('equal totals → draw (null winnerId)', () => {
+    const aResults = Array.from({ length: 8 }, (_, i) => makeCleanHit(i + 1, 300, PLAYER_A));
+    const bResults = Array.from({ length: 8 }, (_, i) => makeCleanHit(i + 1, 300, PLAYER_B));
+
+    const result = scoreRound(aResults, bResults, PLAYER_A, PLAYER_B, 1);
+
+    expect(result.playerATotalMs).toBe(2400);
+    expect(result.playerBTotalMs).toBe(2400);
     expect(result.winnerId).toBeNull();
-    expect(result.draw).toBe(true);
   });
 
-  it('A misses target → B wins (if B hits)', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1200, x: 0.1, y: 0.1 }); // miss
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1300, x: 0.5, y: 0.5 }); // hit
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
+  it('timeout uses ceiling as time', () => {
+    const aResults = Array.from({ length: 8 }, (_, i) => makeTimeout(i + 1, PLAYER_A));
+    const bResults = Array.from({ length: 8 }, (_, i) => makeCleanHit(i + 1, 500, PLAYER_B));
+
+    const result = scoreRound(aResults, bResults, PLAYER_A, PLAYER_B, 1);
+
+    expect(result.playerATotalMs).toBe(8 * QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS);
+    expect(result.playerBTotalMs).toBe(4000);
     expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.draw).toBe(false);
-  });
-
-  it('both miss → draw', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1200, x: 0.1, y: 0.1 });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1300, x: 0.1, y: 0.1 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
-    expect(result.winnerId).toBeNull();
-    expect(result.draw).toBe(true);
-  });
-
-  it('A isTrusted=false → B wins', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1200, x: 0.5, y: 0.5, isTrusted: false });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1300, x: 0.5, y: 0.5 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
-    expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.draw).toBe(false);
-  });
-
-  it('both below floor → draw', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1050, x: 0.5, y: 0.5 }); // 50ms
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1080, x: 0.5, y: 0.5 }); // 80ms
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
-    expect(result.winnerId).toBeNull();
-    expect(result.draw).toBe(true);
-  });
-
-  it('reaction times within 1ms → draw', () => {
-    const tapA = makeTap({ playerId: PLAYER_A, timestamp: 1200, x: 0.5, y: 0.5 });
-    const tapB = makeTap({ playerId: PLAYER_B, timestamp: 1201, x: 0.5, y: 0.5 });
-    const result = determineRoundWinner(tapA, tapB, prompt, promptTs, 1);
-    expect(result.winnerId).toBeNull();
-    expect(result.draw).toBe(true);
-  });
-
-  it('neither player taps → draw', () => {
-    const result = determineRoundWinner(null, null, prompt, promptTs, 1);
-    expect(result.winnerId).toBeNull();
-    expect(result.draw).toBe(true);
   });
 });
 
 // ─── determineMatchWinner ───────────────────────────────────────────────────
 
 describe('determineMatchWinner', () => {
-  function round(winnerId: PlayerId | null, draw: boolean, roundNumber: number): RoundResult {
+  function roundResult(winnerId: PlayerId | null, roundNumber: number): RoundResult {
     return {
       roundNumber,
       winnerId,
-      playerAReactionMs: 200,
-      playerBReactionMs: 300,
-      falseStart: null,
-      draw,
+      playerAResults: [],
+      playerBResults: [],
+      playerATotalMs: winnerId === PLAYER_A ? 2000 : 3000,
+      playerBTotalMs: winnerId === PLAYER_B ? 2000 : 3000,
     };
   }
 
-  it('3-0 → winner is player with 3 wins', () => {
+  it('2-0 → winner is player with 2 wins', () => {
     const rounds = [
-      round(PLAYER_A, false, 1),
-      round(PLAYER_A, false, 2),
-      round(PLAYER_A, false, 3),
+      roundResult(PLAYER_A, 1),
+      roundResult(PLAYER_A, 2),
     ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
     expect(result.winnerId).toBe(PLAYER_A);
-    expect(result.score).toEqual([3, 0]);
+    expect(result.score).toEqual([2, 0]);
   });
 
-  it('3-2 → winner is player with 3 wins', () => {
+  it('2-1 → winner is player with 2 wins', () => {
     const rounds = [
-      round(PLAYER_A, false, 1),
-      round(PLAYER_B, false, 2),
-      round(PLAYER_A, false, 3),
-      round(PLAYER_B, false, 4),
-      round(PLAYER_A, false, 5),
-    ];
-    const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
-    expect(result.winnerId).toBe(PLAYER_A);
-    expect(result.score).toEqual([3, 2]);
-  });
-
-  it('2-1 with 2 draws → player with more wins takes it', () => {
-    const rounds = [
-      round(PLAYER_A, false, 1),
-      round(null, true, 2),
-      round(PLAYER_B, false, 3),
-      round(null, true, 4),
-      round(PLAYER_A, false, 5),
+      roundResult(PLAYER_A, 1),
+      roundResult(PLAYER_B, 2),
+      roundResult(PLAYER_A, 3),
     ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
     expect(result.winnerId).toBe(PLAYER_A);
     expect(result.score).toEqual([2, 1]);
   });
 
-  it('2-2 with 1 draw → null (draw match)', () => {
+  it('1-1 + draw → null (tie match)', () => {
     const rounds = [
-      round(PLAYER_A, false, 1),
-      round(PLAYER_B, false, 2),
-      round(null, true, 3),
-      round(PLAYER_A, false, 4),
-      round(PLAYER_B, false, 5),
+      roundResult(PLAYER_A, 1),
+      roundResult(PLAYER_B, 2),
+      roundResult(null, 3),
     ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
     expect(result.winnerId).toBeNull();
-    expect(result.score).toEqual([2, 2]);
+    expect(result.score).toEqual([1, 1]);
   });
 
-  it('B wins 3-0', () => {
+  it('B wins 2-0', () => {
     const rounds = [
-      round(PLAYER_B, false, 1),
-      round(PLAYER_B, false, 2),
-      round(PLAYER_B, false, 3),
+      roundResult(PLAYER_B, 1),
+      roundResult(PLAYER_B, 2),
     ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
     expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.score).toEqual([0, 3]);
+    expect(result.score).toEqual([0, 2]);
+  });
+
+  it('B wins 2-1', () => {
+    const rounds = [
+      roundResult(PLAYER_A, 1),
+      roundResult(PLAYER_B, 2),
+      roundResult(PLAYER_B, 3),
+    ];
+    const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
+    expect(result.winnerId).toBe(PLAYER_B);
+    expect(result.score).toEqual([1, 2]);
+  });
+
+  it('all 3 draws → null', () => {
+    const rounds = [
+      roundResult(null, 1),
+      roundResult(null, 2),
+      roundResult(null, 3),
+    ];
+    const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
+    expect(result.winnerId).toBeNull();
+    expect(result.score).toEqual([0, 0]);
   });
 });

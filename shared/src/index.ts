@@ -6,3 +6,4 @@ export * from './constants.js';
 export * from './quickdraw/generateRound.js';
 export * from './quickdraw/validation.js';
 export * from './quickdraw/difficulty.js';
+export * from './quickdraw/simulation.js';
