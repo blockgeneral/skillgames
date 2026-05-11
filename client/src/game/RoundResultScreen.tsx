@@ -1,54 +1,71 @@
-import type { RoundOutcome } from './types.js';
+import type { PromptResult, RoundResult } from '@skillgamez/shared';
+import { PLAYER_ID } from './types.js';
 
 interface Props {
-  roundNumber: number;
-  outcome: RoundOutcome;
+  roundResult: RoundResult;
   score: [number, number];
 }
 
-export function RoundResultScreen({ roundNumber: _roundNumber, outcome, score }: Props): JSX.Element {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 animate-fade-in">
-      {outcome.type === 'hit' && outcome.youWon && (
-        <>
-          <p className="text-4xl font-extrabold text-green-400">HIT</p>
-          <p className="text-6xl font-mono text-green-300">{outcome.reactionMs}ms</p>
-        </>
-      )}
-      {outcome.type === 'hit' && !outcome.youWon && (
-        <>
-          <p className="text-4xl font-extrabold text-red-400">HIT - TOO SLOW</p>
-          <p className="text-6xl font-mono text-red-300">{outcome.reactionMs}ms</p>
-        </>
-      )}
-      {outcome.type === 'miss' && (
-        <p className="text-4xl font-extrabold text-red-400">MISS</p>
-      )}
-      {outcome.type === 'false-start' && (
-        <p className="text-4xl font-extrabold text-red-400">FALSE START</p>
-      )}
-      {outcome.type === 'too-slow' && (
-        <p className="text-4xl font-extrabold text-red-400">TOO SLOW</p>
-      )}
-      {outcome.type === 'draw' && (
-        <>
-          <p className="text-4xl font-extrabold text-yellow-400">DRAW</p>
-          <p className="text-6xl font-mono text-yellow-300">{outcome.reactionMs}ms</p>
-        </>
-      )}
+function dotColor(r: PromptResult): string {
+  if (r.hit) return '#22C55E';
+  if (r.falseStart) return '#F97316';
+  return '#FF3B3B';
+}
 
-      {/* Times comparison */}
-      {(outcome.type === 'hit' || outcome.type === 'miss' || outcome.type === 'too-slow' || outcome.type === 'draw') && (
-        <div className="text-sm text-slate-400 text-center">
-          <p>
-            You: <span className="text-slate-200 font-mono">
-              {outcome.type === 'hit' ? `${outcome.reactionMs}ms` : outcome.type === 'draw' ? `${outcome.reactionMs}ms` : '---'}
-            </span>
-            {' / '}
-            Opponent: <span className="text-slate-200 font-mono">{outcome.opponentMs}ms</span>
-          </p>
+function dotLabel(r: PromptResult): string {
+  if (r.hit && r.reactionMs !== null) return `${r.reactionMs}ms`;
+  if (r.falseStart) return 'FS';
+  if (r.missed) return 'MISS';
+  if (r.timedOut) return 'T/O';
+  return '---';
+}
+
+export function RoundResultScreen({ roundResult, score }: Props): JSX.Element {
+  const playerWon = roundResult.winnerId === PLAYER_ID;
+  const isDraw = roundResult.winnerId === null;
+  const playerResults = roundResult.playerAResults;
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-5 px-6 animate-fade-in">
+      <p className="text-lg text-slate-500 tracking-widest uppercase">Round Complete</p>
+
+      {/* Times */}
+      <div className="flex gap-8 text-center">
+        <div>
+          <p className="text-xs text-slate-500 uppercase">You</p>
+          <p className="text-3xl font-mono text-cyan-400">{roundResult.playerATotalMs.toLocaleString()}ms</p>
         </div>
-      )}
+        <div>
+          <p className="text-xs text-slate-500 uppercase">Opponent</p>
+          <p className="text-3xl font-mono text-red-400">{roundResult.playerBTotalMs.toLocaleString()}ms</p>
+        </div>
+      </div>
+
+      {/* Prompt breakdown dots */}
+      <div className="flex gap-2">
+        {playerResults.map((r, i) => (
+          <div
+            key={i}
+            className="w-3 h-3 rounded-full"
+            style={{ backgroundColor: dotColor(r) }}
+            title={dotLabel(r)}
+          />
+        ))}
+      </div>
+
+      {/* Breakdown detail */}
+      <div className="grid grid-cols-4 gap-x-4 gap-y-1 text-xs font-mono text-slate-400">
+        {playerResults.map((r, i) => (
+          <div key={i} className="text-center" style={{ color: dotColor(r) }}>
+            {dotLabel(r)}
+          </div>
+        ))}
+      </div>
+
+      {/* Round winner */}
+      <p className={`text-2xl font-extrabold mt-2 ${isDraw ? 'text-yellow-400' : playerWon ? 'text-green-400' : 'text-red-400'}`}>
+        Round {roundResult.roundNumber}: {isDraw ? 'DRAW' : playerWon ? 'YOU WIN' : 'OPPONENT WINS'}
+      </p>
 
       {/* Score */}
       <div className="animate-score-pop">

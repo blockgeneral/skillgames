@@ -4,9 +4,10 @@ import { VALID_WAGER_AMOUNTS } from '@skillgamez/shared';
 
 interface Props {
   onPlay: (wagerAmount: WagerAmount) => void;
+  onTutorial: () => void;
 }
 
-export function StartScreen({ onPlay }: Props): JSX.Element {
+export function StartScreen({ onPlay, onTutorial }: Props): JSX.Element {
   const [selected, setSelected] = useState<WagerAmount>(1);
 
   return (
@@ -41,12 +42,20 @@ export function StartScreen({ onPlay }: Props): JSX.Element {
         </div>
       </div>
 
-      <button
-        onPointerDown={() => onPlay(selected)}
-        className="w-full max-w-xs py-4 rounded-xl bg-cyan-500 text-black text-xl font-extrabold tracking-wider active:bg-cyan-400 transition-colors"
-      >
-        PLAY
-      </button>
+      <div className="w-full max-w-xs flex flex-col gap-3">
+        <button
+          onPointerDown={() => onPlay(selected)}
+          className="w-full py-4 rounded-xl bg-cyan-500 text-black text-xl font-extrabold tracking-wider active:bg-cyan-400 transition-colors"
+        >
+          PLAY
+        </button>
+        <button
+          onPointerDown={onTutorial}
+          className="w-full py-3 rounded-xl bg-slate-800 text-slate-400 text-sm font-bold tracking-wider active:bg-slate-700 transition-colors"
+        >
+          HOW TO PLAY
+        </button>
+      </div>
     </div>
   );
 }

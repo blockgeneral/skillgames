@@ -1,46 +1,32 @@
-import type { MatchState, RoundOutcome } from './types.js';
+import type { MatchState } from './types.js';
+import { PLAYER_ID } from './types.js';
+import type { WagerAmount } from '@skillgamez/shared';
 
 interface Props {
   match: MatchState;
-  onPlayAgain: () => void;
+  onPlayAgain: (wagerAmount: WagerAmount) => void;
+  onMainMenu: () => void;
 }
 
-function avgReactionTime(times: (number | null)[]): number | null {
-  const valid = times.filter((t): t is number => t !== null);
-  if (valid.length === 0) return null;
-  return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
-}
-
-function outcomeLabel(o: RoundOutcome): string {
-  switch (o.type) {
-    case 'hit':
-      return o.youWon ? `HIT ${o.reactionMs}ms` : `HIT ${o.reactionMs}ms (lost)`;
-    case 'miss':
-      return 'MISS';
-    case 'false-start':
-      return 'FALSE START';
-    case 'too-slow':
-      return 'TOO SLOW';
-    case 'draw':
-      return `DRAW ${o.reactionMs}ms`;
-  }
-}
-
-export function MatchResultScreen({ match, onPlayAgain }: Props): JSX.Element {
+export function MatchResultScreen({ match, onPlayAgain, onMainMenu }: Props): JSX.Element {
   const [you, opp] = match.score;
   const won = you > opp;
   const draw = you === opp;
 
-  const avgPlayer = avgReactionTime(match.playerReactionTimes);
+  // Compute stats across all rounds
+  const allPlayerResults = match.playerResults.flat();
+  const hitResults = allPlayerResults.filter(r => r.hit && r.reactionMs !== null);
+  const avgMs = hitResults.length > 0
+    ? Math.round(hitResults.reduce((sum, r) => sum + r.reactionMs!, 0) / hitResults.length)
+    : null;
+  const bestMs = hitResults.length > 0
+    ? Math.min(...hitResults.map(r => r.reactionMs!))
+    : null;
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 px-6 animate-fade-in">
+    <div className="flex flex-col items-center justify-center h-full gap-5 px-6 animate-fade-in overflow-y-auto">
       {/* Result header */}
-      <p
-        className={`text-5xl font-extrabold tracking-wider ${
-          draw ? 'text-yellow-400' : won ? 'text-green-400' : 'text-red-400'
-        }`}
-      >
+      <p className={`text-5xl font-extrabold tracking-wider ${draw ? 'text-yellow-400' : won ? 'text-green-400' : 'text-red-400'}`}>
         {draw ? 'DRAW' : won ? 'YOU WIN' : 'YOU LOSE'}
       </p>
 
@@ -51,36 +37,56 @@ export function MatchResultScreen({ match, onPlayAgain }: Props): JSX.Element {
         <span className="text-red-400">{opp}</span>
       </p>
 
-      {/* Avg reaction time */}
-      {avgPlayer !== null && (
-        <p className="text-sm text-slate-500">
-          Avg reaction: <span className="text-slate-300 font-mono">{avgPlayer}ms</span>
-        </p>
-      )}
-
-      {/* Round breakdown */}
-      <div className="w-full max-w-xs space-y-1">
-        {match.roundOutcomes.map((o, i) => (
-          <div
-            key={i}
-            className="flex justify-between text-xs text-slate-500 px-2 py-1 bg-slate-900 rounded"
-          >
-            <span>R{i + 1}</span>
-            <span className="font-mono text-slate-400">{outcomeLabel(o)}</span>
-            <span className="font-mono text-slate-600">
-              opp: {o.type !== 'false-start' ? `${o.opponentMs}ms` : '---'}
-            </span>
+      {/* Stats */}
+      <div className="flex gap-6 text-center">
+        {avgMs !== null && (
+          <div>
+            <p className="text-xs text-slate-500 uppercase">Avg reaction</p>
+            <p className="text-lg font-mono text-slate-300">{avgMs}ms</p>
           </div>
-        ))}
+        )}
+        {bestMs !== null && (
+          <div>
+            <p className="text-xs text-slate-500 uppercase">Best</p>
+            <p className="text-lg font-mono text-green-400">{bestMs}ms</p>
+          </div>
+        )}
       </div>
 
-      {/* Play again */}
-      <button
-        onPointerDown={onPlayAgain}
-        className="w-full max-w-xs py-4 rounded-xl bg-cyan-500 text-black text-xl font-extrabold tracking-wider active:bg-cyan-400 transition-colors mt-4"
-      >
-        PLAY AGAIN
-      </button>
+      {/* Per-round breakdown */}
+      <div className="w-full max-w-xs space-y-2">
+        {match.roundResults.map((rr, i) => {
+          const playerWon = rr.winnerId === PLAYER_ID;
+          const isDraw = rr.winnerId === null;
+          return (
+            <div key={i} className="flex items-center justify-between text-xs px-3 py-2 bg-slate-900 rounded-lg">
+              <span className="text-slate-500 font-bold">R{rr.roundNumber}</span>
+              <span className="font-mono text-cyan-400">{rr.playerATotalMs.toLocaleString()}ms</span>
+              <span className="text-slate-600">vs</span>
+              <span className="font-mono text-red-400">{rr.playerBTotalMs.toLocaleString()}ms</span>
+              <span className={`font-bold ${isDraw ? 'text-yellow-400' : playerWon ? 'text-green-400' : 'text-red-400'}`}>
+                {isDraw ? 'DRAW' : playerWon ? 'WIN' : 'LOSS'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Buttons */}
+      <div className="w-full max-w-xs flex flex-col gap-3 mt-2">
+        <button
+          onPointerDown={() => onPlayAgain(match.wagerAmount)}
+          className="w-full py-4 rounded-xl bg-cyan-500 text-black text-xl font-extrabold tracking-wider active:bg-cyan-400 transition-colors"
+        >
+          PLAY AGAIN
+        </button>
+        <button
+          onPointerDown={onMainMenu}
+          className="w-full py-3 rounded-xl bg-slate-800 text-slate-400 text-sm font-bold tracking-wider active:bg-slate-700 transition-colors"
+        >
+          MAIN MENU
+        </button>
+      </div>
     </div>
   );
 }

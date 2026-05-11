@@ -1,37 +1,43 @@
-import type { WagerAmount } from '@skillgamez/shared';
-import type { RoundConfig, Prompt } from '@skillgamez/shared';
+import type { PlayerId, WagerAmount, Prompt, PromptResult, RoundConfig, RoundResult } from '@skillgamez/shared';
+
+export type PromptFeedback = 'hit' | 'miss' | 'false_start' | 'timeout';
+
+export type PromptStatus = 'upcoming' | 'hit' | 'miss' | 'false_start' | 'timeout';
 
 export type GamePhase =
   | { kind: 'start' }
-  | { kind: 'get-ready'; roundNumber: number }
-  | { kind: 'delay'; roundNumber: number }
-  | { kind: 'prompted'; roundNumber: number; promptAppearedAt: number }
-  | { kind: 'round-result'; roundNumber: number; outcome: RoundOutcome }
-  | { kind: 'match-result' };
-
-export type RoundOutcome =
-  | { type: 'hit'; reactionMs: number; opponentMs: number; youWon: boolean }
-  | { type: 'miss'; opponentMs: number }
-  | { type: 'false-start' }
-  | { type: 'too-slow'; opponentMs: number }
-  | { type: 'draw'; reactionMs: number; opponentMs: number };
+  | { kind: 'tutorial' }
+  | { kind: 'countdown'; value: number }
+  | { kind: 'round_header'; roundIndex: number }
+  | { kind: 'prompt_delay'; roundIndex: number; promptIndex: number }
+  | { kind: 'prompt_active'; roundIndex: number; promptIndex: number; promptAppearedAt: number }
+  | { kind: 'prompt_feedback'; roundIndex: number; promptIndex: number; feedbackType: PromptFeedback; tapPosition?: { x: number; y: number } }
+  | { kind: 'round_result'; roundIndex: number }
+  | { kind: 'match_result' };
 
 export interface MatchState {
-  seed: string;
-  wagerAmount: WagerAmount;
-  rounds: RoundConfig[];
-  currentRound: number;
-  score: [number, number];
-  roundOutcomes: RoundOutcome[];
-  playerReactionTimes: (number | null)[];
-  opponentReactionTimes: (number | null)[];
+  readonly seed: string;
+  readonly wagerAmount: WagerAmount;
+  readonly roundConfigs: RoundConfig[];
+  readonly playerResults: PromptResult[][];
+  readonly opponentResults: PromptResult[][];
+  readonly roundResults: RoundResult[];
+  readonly score: [number, number];
 }
+
+export const PLAYER_ID = 'player' as PlayerId;
+export const OPPONENT_ID = 'opponent' as PlayerId;
 
 export interface DebugInfo {
   phase: string;
+  roundIndex: number;
+  promptIndex: number;
+  totalPrompts: number;
   lastTapNormalized: { x: number; y: number } | null;
   lastReactionMs: number | null;
   lastOnTarget: boolean | null;
   currentPrompt: Prompt | null;
   seed: string;
+  runningScore: number;
+  opponentRoundResults: PromptResult[] | null;
 }
