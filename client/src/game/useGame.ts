@@ -5,7 +5,6 @@ import {
   isTapOnTarget,
   isReactionTimeValid,
   scoreRound,
-  determineMatchWinner,
   QUICK_DRAW_CONSTANTS,
   SIMULATED_OPPONENT,
 } from '@skillgamez/shared';
@@ -38,16 +37,18 @@ function generateOpponentResults(seed: string, roundConfigs: RoundConfig[]): Pro
     for (let p = 0; p < roundConfigs[r]!.prompts.length; p++) {
       const fsRoll = next();
       if (fsRoll < SIMULATED_OPPONENT.FALSE_START_RATE) {
-        rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: null, hit: false, falseStart: true, missed: false, timedOut: false });
+        rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: null, hit: false, falseStart: true, missed: false, timedOut: false, missCount: 0 });
         continue;
       }
       const hitRoll = next();
       if (hitRoll >= SIMULATED_OPPONENT.HIT_RATE) {
-        rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: null, hit: false, falseStart: false, missed: true, timedOut: false });
+        // Opponent misses once, then hits 200ms later
+        const baseMs = Math.round(randomInRange(next, SIMULATED_OPPONENT.MIN_REACTION_MS, SIMULATED_OPPONENT.MAX_REACTION_MS));
+        rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: baseMs + 200, hit: true, falseStart: false, missed: false, timedOut: false, missCount: 1 });
         continue;
       }
       const ms = Math.round(randomInRange(next, SIMULATED_OPPONENT.MIN_REACTION_MS, SIMULATED_OPPONENT.MAX_REACTION_MS));
-      rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: ms, hit: true, falseStart: false, missed: false, timedOut: false });
+      rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: ms, hit: true, falseStart: false, missed: false, timedOut: false, missCount: 0 });
     }
     results.push(rr);
   }
@@ -78,6 +79,7 @@ export function useGame() {
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const tappedRef = useRef(false);
+  const missCountRef = useRef(0);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { matchRef.current = match; }, [match]);
@@ -128,6 +130,7 @@ export function useGame() {
     const delay = m.roundConfigs[roundIndex]!.prompts[promptIndex]!.delay;
     setPhase({ kind: 'prompt_delay', roundIndex, promptIndex });
     tappedRef.current = false;
+    missCountRef.current = 0;
 
     timerRef.current = setTimeout(() => {
       const now = performance.now();
@@ -142,11 +145,16 @@ export function useGame() {
   }
 
   function onPromptTimeout(roundIndex: number, promptIndex: number) {
+    // Clear any pending feedback timer (e.g. miss feedback in progress)
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = undefined; }
+    timeoutRef.current = undefined;
+
     const m = matchRef.current;
     if (!m) return;
     const result: PromptResult = {
       promptNumber: promptIndex + 1, playerId: PLAYER_ID,
       reactionMs: null, hit: false, falseStart: false, missed: false, timedOut: true,
+      missCount: missCountRef.current,
     };
     const updated = addPlayerResult(m, roundIndex, result);
     setMatch(updated);
@@ -188,10 +196,10 @@ export function useGame() {
     timerRef.current = setTimeout(() => {
       const latest = matchRef.current;
       if (!latest) return;
-      const matchWinner = determineMatchWinner(latest.roundResults, PLAYER_ID, OPPONENT_ID);
+      const [pWins, oWins] = latest.score;
       const allPlayed = latest.roundResults.length >= QUICK_DRAW_CONSTANTS.ROUNDS_PER_MATCH;
 
-      if (matchWinner.winnerId !== null || allPlayed) {
+      if (pWins >= QUICK_DRAW_CONSTANTS.ROUNDS_TO_WIN || oWins >= QUICK_DRAW_CONSTANTS.ROUNDS_TO_WIN || allPlayed) {
         setPhase({ kind: 'match_result' });
       } else {
         startRound(roundIndex + 1);
@@ -202,7 +210,6 @@ export function useGame() {
   function startRound(roundIndex: number) {
     const m = matchRef.current;
     if (!m) return;
-    // Initialize empty results for this round
     const newResults = m.playerResults.map((r, i) =>
       i === roundIndex ? [] : r,
     );
@@ -227,7 +234,6 @@ export function useGame() {
         const duration = step === values.length - 1 ? GO_DURATION_MS : COUNTDOWN_STEP_MS;
         timerRef.current = setTimeout(advance, duration);
       } else {
-        // Start first round
         startRound(0);
       }
     }
@@ -278,7 +284,7 @@ export function useGame() {
       const { roundIndex, promptIndex } = p;
       const result: PromptResult = {
         promptNumber: promptIndex + 1, playerId: PLAYER_ID,
-        reactionMs: null, hit: false, falseStart: true, missed: false, timedOut: false,
+        reactionMs: null, hit: false, falseStart: true, missed: false, timedOut: false, missCount: 0,
       };
       const updated = addPlayerResult(m, roundIndex, result);
       setMatch(updated);
@@ -296,7 +302,6 @@ export function useGame() {
     if (p.kind === 'prompt_active') {
       if (tappedRef.current) return;
       tappedRef.current = true;
-      clearTimers();
 
       const { roundIndex, promptIndex } = p;
       const prompt = m.roundConfigs[roundIndex]!.prompts[promptIndex]!.prompt;
@@ -310,30 +315,48 @@ export function useGame() {
         lastOnTarget: onTarget,
       }));
 
-      let result: PromptResult;
-      let fb: PromptFeedback;
-
+      // Timeout from tap (shouldn't normally happen, but handle it)
       if (!timeValid.valid && timeValid.reason === 'timeout') {
-        result = { promptNumber: promptIndex + 1, playerId: PLAYER_ID, reactionMs: null, hit: false, falseStart: false, missed: false, timedOut: true };
-        fb = 'timeout';
-      } else if (!onTarget) {
-        result = { promptNumber: promptIndex + 1, playerId: PLAYER_ID, reactionMs: null, hit: false, falseStart: false, missed: true, timedOut: false };
-        fb = 'miss';
-      } else if (!timeValid.valid && timeValid.reason === 'below_human_floor') {
-        result = { promptNumber: promptIndex + 1, playerId: PLAYER_ID, reactionMs: null, hit: false, falseStart: false, missed: true, timedOut: false };
-        fb = 'miss';
-      } else {
-        result = { promptNumber: promptIndex + 1, playerId: PLAYER_ID, reactionMs: Math.round(reactionMs), hit: true, falseStart: false, missed: false, timedOut: false };
-        fb = 'hit';
+        clearTimers();
+        const result: PromptResult = {
+          promptNumber: promptIndex + 1, playerId: PLAYER_ID,
+          reactionMs: null, hit: false, falseStart: false, missed: false, timedOut: true,
+          missCount: missCountRef.current,
+        };
+        const updated = addPlayerResult(m, roundIndex, result);
+        setMatch(updated);
+        setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'timeout' });
+        timerRef.current = setTimeout(() => {
+          advanceToNextPrompt(roundIndex, promptIndex);
+        }, TIMEOUT_FEEDBACK_MS);
+        return;
       }
 
+      // Miss — keep prompt active, accumulate penalty, allow re-tap
+      if (!onTarget || (!timeValid.valid && timeValid.reason === 'below_human_floor')) {
+        missCountRef.current++;
+        // Don't clear timeoutRef — it keeps counting from original appearance
+        setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'miss' });
+        timerRef.current = setTimeout(() => {
+          tappedRef.current = false;
+          setPhase({ kind: 'prompt_active', roundIndex, promptIndex, promptAppearedAt: promptAppearedAtRef.current });
+        }, MISS_FEEDBACK_MS);
+        return;
+      }
+
+      // Hit!
+      clearTimers();
+      const result: PromptResult = {
+        promptNumber: promptIndex + 1, playerId: PLAYER_ID,
+        reactionMs: Math.round(reactionMs), hit: true, falseStart: false, missed: false, timedOut: false,
+        missCount: missCountRef.current,
+      };
       const updated = addPlayerResult(m, roundIndex, result);
       setMatch(updated);
-      setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: fb });
-
+      setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'hit' });
       timerRef.current = setTimeout(() => {
         advanceToNextPrompt(roundIndex, promptIndex);
-      }, feedbackDuration(fb));
+      }, feedbackDuration('hit'));
       return;
     }
   }
@@ -344,12 +367,16 @@ export function useGame() {
     setMatch(null);
   }
 
-  // Derived value for gameplay UI
+  // Derived values
   let runningTotalMs = 0;
   if (match && 'roundIndex' in phase) {
     const ri = (phase as { roundIndex: number }).roundIndex;
     runningTotalMs = computeRunningTotal(match.playerResults[ri] ?? []);
   }
 
-  return { phase, match, debugInfo, runningTotalMs, startMatch, openTutorial, completeTutorial, handleTap, resetToStart };
+  return {
+    phase, match, debugInfo, runningTotalMs,
+    currentMissCount: missCountRef.current,
+    startMatch, openTutorial, completeTutorial, handleTap, resetToStart,
+  };
 }

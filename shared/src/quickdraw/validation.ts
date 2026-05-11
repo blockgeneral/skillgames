@@ -12,6 +12,12 @@ export interface TapEvent {
 
 const HITBOX_FORGIVENESS = 1.2;
 
+// Triangle vertex offsets relative to center, normalized to size=1.
+// Matches the SVG polygon "50,6.7 93.3,75 6.7,75" in a 100×100 viewBox.
+const TRI_TOP_Y = (50 - 6.7) / 50;     // 0.866
+const TRI_BOT_X = (93.3 - 50) / 50;    // 0.866
+const TRI_BOT_Y = (75 - 50) / 50;      // 0.5
+
 export function isReactionTimeValid(reactionMs: number): { valid: boolean; reason?: string } {
   if (reactionMs < QUICK_DRAW_CONSTANTS.REACTION_FLOOR_MS) {
     return { valid: false, reason: 'below_human_floor' };
@@ -29,11 +35,39 @@ export function isTapOnTarget(tap: { x: number; y: number }, prompt: Prompt): bo
 
   switch (prompt.shape) {
     case 'circle':
-    case 'triangle':
       return Math.sqrt(dx * dx + dy * dy) <= effectiveSize;
     case 'square':
       return Math.abs(dx) <= effectiveSize && Math.abs(dy) <= effectiveSize;
+    case 'triangle': {
+      // Point-in-triangle using sign-of-cross-product method.
+      // Vertices scaled outward from center by forgiveness factor.
+      const ax = 0;
+      const ay = -TRI_TOP_Y * effectiveSize;
+      const bx = TRI_BOT_X * effectiveSize;
+      const by = TRI_BOT_Y * effectiveSize;
+      const cx = -TRI_BOT_X * effectiveSize;
+      const cy = TRI_BOT_Y * effectiveSize;
+      return pointInTriangle(dx, dy, ax, ay, bx, by, cx, cy);
+    }
   }
+}
+
+function crossSign(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+  return (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2);
+}
+
+function pointInTriangle(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+  cx: number, cy: number,
+): boolean {
+  const d1 = crossSign(px, py, ax, ay, bx, by);
+  const d2 = crossSign(px, py, bx, by, cx, cy);
+  const d3 = crossSign(px, py, cx, cy, ax, ay);
+  const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+  const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+  return !(hasNeg && hasPos);
 }
 
 export function isFalseStart(tapTimestamp: Timestamp, promptTimestamp: Timestamp): boolean {
@@ -71,16 +105,16 @@ export function scoreRound(
 function computePlayerTotal(results: PromptResult[]): number {
   let total = 0;
   for (const r of results) {
+    const missPenalty = r.missCount * QUICK_DRAW_CONSTANTS.MISS_PENALTY_MS;
     if (r.falseStart) {
       total += QUICK_DRAW_CONSTANTS.FALSE_START_PENALTY_MS;
     } else if (r.timedOut) {
-      total += QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS;
+      total += QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS + missPenalty;
     } else if (r.missed) {
       total += QUICK_DRAW_CONSTANTS.MISS_PENALTY_MS;
     } else if (r.hit && r.reactionMs !== null) {
-      total += r.reactionMs;
+      total += r.reactionMs + missPenalty;
     } else {
-      // No tap / invalid — treated as timeout
       total += QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS;
     }
   }

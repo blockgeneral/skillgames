@@ -266,13 +266,13 @@ function PracticeShape({ prompt, flash }: { prompt: Prompt; flash: boolean }): J
       }}
     >
       {prompt.shape === 'circle' && (
-        <div style={{ width: pxSize * 2, height: pxSize * 2, borderRadius: '50%', backgroundColor: color, transform: 'translate(-50%, -50%)' }} />
+        <div style={{ width: pxSize * 2, height: pxSize * 2, borderRadius: '50%', backgroundColor: color }} />
       )}
       {prompt.shape === 'square' && (
-        <div style={{ width: pxSize * 2, height: pxSize * 2, backgroundColor: color, transform: 'translate(-50%, -50%)' }} />
+        <div style={{ width: pxSize * 2, height: pxSize * 2, backgroundColor: color }} />
       )}
       {prompt.shape === 'triangle' && (
-        <svg width={pxSize * 2} height={pxSize * 2} viewBox="0 0 100 100" style={{ transform: 'translate(-50%, -50%)', overflow: 'visible' }}>
+        <svg width={pxSize * 2} height={pxSize * 2} viewBox="0 0 100 100" style={{ overflow: 'visible' }}>
           <polygon points="50,6.7 93.3,75 6.7,75" fill={color} />
         </svg>
       )}

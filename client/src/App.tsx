@@ -11,7 +11,7 @@ import { DebugOverlay } from './game/DebugOverlay.js';
 
 export function App(): JSX.Element {
   const {
-    phase, match, debugInfo, startMatch,
+    phase, match, debugInfo, currentMissCount, startMatch,
     openTutorial, completeTutorial, handleTap, resetToStart,
   } = useGame();
   const [showDebug, setShowDebug] = useState(false);
@@ -62,6 +62,7 @@ export function App(): JSX.Element {
             prompt={prompt}
             feedbackType={phase.kind === 'prompt_feedback' ? phase.feedbackType : undefined}
             results={results}
+            currentMissCount={currentMissCount}
             onTap={handleTap}
             tapPosition={phase.kind === 'prompt_feedback' ? phase.tapPosition : undefined}
           />

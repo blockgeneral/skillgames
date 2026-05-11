@@ -50,6 +50,7 @@ export interface PromptResult {
   readonly falseStart: boolean;
   readonly missed: boolean;
   readonly timedOut: boolean;
+  readonly missCount: number;
 }
 
 /** Outcome of a completed round (8 prompts) */

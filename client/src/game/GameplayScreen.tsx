@@ -10,6 +10,7 @@ interface Props {
   prompt: Prompt | null;
   feedbackType?: PromptFeedback;
   results: PromptResult[];
+  currentMissCount: number;
   onTap: (normalizedX: number, normalizedY: number, timestamp: number, isTrusted: boolean) => void;
   tapPosition?: { x: number; y: number };
 }
@@ -41,7 +42,7 @@ function formatTime(ms: number): string {
   return ms.toLocaleString();
 }
 
-export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, results, onTap, tapPosition }: Props): JSX.Element {
+export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, results, currentMissCount, onTap, tapPosition }: Props): JSX.Element {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
@@ -65,8 +66,9 @@ export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, re
     }
   }
 
-  const runningTotalMs = computeRunningTotal(results);
-  const showShape = (subPhase === 'active') || (subPhase === 'feedback' && feedbackType === 'hit');
+  const runningTotalMs = computeRunningTotal(results) + currentMissCount * QUICK_DRAW_CONSTANTS.MISS_PENALTY_MS;
+  // Show shape during active, hit feedback, AND miss feedback (player needs to re-tap)
+  const showShape = (subPhase === 'active') || (subPhase === 'feedback' && (feedbackType === 'hit' || feedbackType === 'miss'));
 
   return (
     <div
@@ -103,9 +105,24 @@ export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, re
         />
       )}
 
-      {/* Miss vignette */}
-      {subPhase === 'feedback' && (feedbackType === 'miss' || feedbackType === 'timeout') && (
-        <div className="absolute inset-0 animate-vignette-red pointer-events-none" />
+      {/* Miss vignette + penalty text */}
+      {subPhase === 'feedback' && feedbackType === 'miss' && (
+        <>
+          <div className="absolute inset-0 animate-vignette-red pointer-events-none" />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <p className="text-red-400 text-lg font-bold animate-fade-in">+500ms</p>
+          </div>
+        </>
+      )}
+
+      {/* Timeout vignette + text */}
+      {subPhase === 'feedback' && feedbackType === 'timeout' && (
+        <>
+          <div className="absolute inset-0 animate-vignette-red pointer-events-none" />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <p className="text-red-400 text-lg font-bold animate-fade-in">TIMEOUT +2000ms</p>
+          </div>
+        </>
       )}
 
       {/* False start flash + text */}
@@ -125,13 +142,6 @@ export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, re
             </div>
           )}
         </>
-      )}
-
-      {/* Timeout text */}
-      {subPhase === 'feedback' && feedbackType === 'timeout' && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <p className="text-red-400 text-lg font-bold animate-fade-in">TIMEOUT +2000ms</p>
-        </div>
       )}
     </div>
   );
@@ -155,21 +165,19 @@ function ShapeRenderer({ prompt, flash }: { prompt: Prompt; flash: boolean }): J
         <div style={{
           width: pxSize * 2, height: pxSize * 2,
           borderRadius: '50%', backgroundColor: color,
-          transform: 'translate(-50%, -50%)',
         }} />
       )}
       {prompt.shape === 'square' && (
         <div style={{
           width: pxSize * 2, height: pxSize * 2,
           backgroundColor: color,
-          transform: 'translate(-50%, -50%)',
         }} />
       )}
       {prompt.shape === 'triangle' && (
         <svg
           width={pxSize * 2} height={pxSize * 2}
           viewBox="0 0 100 100"
-          style={{ transform: 'translate(-50%, -50%)', overflow: 'visible' }}
+          style={{ overflow: 'visible' }}
         >
           <polygon points="50,6.7 93.3,75 6.7,75" fill={color} />
         </svg>
