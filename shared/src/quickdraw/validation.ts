@@ -1,5 +1,5 @@
 import type { PlayerId, Timestamp } from '../types/common.js';
-import type { Prompt, PromptResult, RoundResult } from '../types/quickdraw.js';
+import type { Prompt, PromptResult, RoundResult, SwipeDirection } from '../types/quickdraw.js';
 import { QUICK_DRAW_CONSTANTS } from '../types/quickdraw.js';
 
 export interface TapEvent {
@@ -13,7 +13,6 @@ export interface TapEvent {
 const HITBOX_FORGIVENESS = 1.2;
 
 // Triangle vertex offsets relative to center, normalized to size=1.
-// Matches the SVG polygon "50,6.7 93.3,75 6.7,75" in a 100×100 viewBox.
 const TRI_TOP_Y = (50 - 6.7) / 50;     // 0.866
 const TRI_BOT_X = (93.3 - 50) / 50;    // 0.866
 const TRI_BOT_Y = (75 - 50) / 50;      // 0.5
@@ -29,6 +28,9 @@ export function isReactionTimeValid(reactionMs: number): { valid: boolean; reaso
 }
 
 export function isTapOnTarget(tap: { x: number; y: number }, prompt: Prompt): boolean {
+  // Tapping a swipe prompt is always a miss
+  if (prompt.type === 'swipe') return false;
+
   const dx = tap.x - prompt.position.x;
   const dy = tap.y - prompt.position.y;
   const effectiveSize = prompt.size * HITBOX_FORGIVENESS;
@@ -39,8 +41,6 @@ export function isTapOnTarget(tap: { x: number; y: number }, prompt: Prompt): bo
     case 'square':
       return Math.abs(dx) <= effectiveSize && Math.abs(dy) <= effectiveSize;
     case 'triangle': {
-      // Point-in-triangle using sign-of-cross-product method.
-      // Vertices scaled outward from center by forgiveness factor.
       const ax = 0;
       const ay = -TRI_TOP_Y * effectiveSize;
       const bx = TRI_BOT_X * effectiveSize;
@@ -50,6 +50,34 @@ export function isTapOnTarget(tap: { x: number; y: number }, prompt: Prompt): bo
       return pointInTriangle(dx, dy, ax, ay, bx, by, cx, cy);
     }
   }
+}
+
+export function isSwipeValid(
+  startPos: { x: number; y: number },
+  endPos: { x: number; y: number },
+  expectedDirection: SwipeDirection,
+  minDistancePx: number,
+): { valid: boolean; reason?: string } {
+  const dx = endPos.x - startPos.x;
+  const dy = endPos.y - startPos.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist < minDistancePx) {
+    return { valid: false, reason: 'too_short' };
+  }
+
+  let actualDirection: SwipeDirection;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    actualDirection = dx > 0 ? 'right' : 'left';
+  } else {
+    actualDirection = dy > 0 ? 'down' : 'up';
+  }
+
+  if (actualDirection !== expectedDirection) {
+    return { valid: false, reason: 'wrong_direction' };
+  }
+
+  return { valid: true };
 }
 
 function crossSign(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
@@ -74,10 +102,6 @@ export function isFalseStart(tapTimestamp: Timestamp, promptTimestamp: Timestamp
   return tapTimestamp < promptTimestamp;
 }
 
-/**
- * Score a round by aggregating 8 prompt results per player.
- * Lower total time wins.
- */
 export function scoreRound(
   playerAResults: PromptResult[],
   playerBResults: PromptResult[],
@@ -92,14 +116,7 @@ export function scoreRound(
   if (playerATotalMs < playerBTotalMs) winnerId = playerAId;
   else if (playerBTotalMs < playerATotalMs) winnerId = playerBId;
 
-  return {
-    roundNumber,
-    playerAResults,
-    playerBResults,
-    playerATotalMs,
-    playerBTotalMs,
-    winnerId,
-  };
+  return { roundNumber, playerAResults, playerBResults, playerATotalMs, playerBTotalMs, winnerId };
 }
 
 function computePlayerTotal(results: PromptResult[]): number {

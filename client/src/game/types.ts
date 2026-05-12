@@ -1,4 +1,4 @@
-import type { PlayerId, WagerAmount, Prompt, PromptResult, RoundConfig, RoundResult } from '@skillgamez/shared';
+import type { PlayerId, WagerAmount, Prompt, PromptResult, RoundConfig, RoundResult, SwipeDirection } from '@skillgamez/shared';
 
 export type PromptFeedback = 'hit' | 'miss' | 'false_start' | 'timeout';
 
@@ -14,6 +14,15 @@ export type GamePhase =
   | { kind: 'prompt_feedback'; roundIndex: number; promptIndex: number; feedbackType: PromptFeedback; tapPosition?: { x: number; y: number } }
   | { kind: 'round_result'; roundIndex: number }
   | { kind: 'match_result' };
+
+export interface GameInput {
+  normalizedX: number;
+  normalizedY: number;
+  timestamp: number;
+  isTrusted: boolean;
+  gestureType: 'tap' | 'swipe' | 'false_start';
+  swipeDirection?: SwipeDirection;
+}
 
 export interface MatchState {
   readonly seed: string;

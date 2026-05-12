@@ -10,7 +10,7 @@ import {
 } from '@skillgamez/shared';
 import { createPrng, randomInRange } from './prng.js';
 import { computeRunningTotal } from './scoring.js';
-import type { GamePhase, MatchState, DebugInfo, PromptFeedback } from './types.js';
+import type { GamePhase, GameInput, MatchState, DebugInfo } from './types.js';
 import { PLAYER_ID, OPPONENT_ID } from './types.js';
 
 const TUTORIAL_KEY = 'skillgamez_tutorial_complete';
@@ -19,6 +19,7 @@ const GO_DURATION_MS = 500;
 const ROUND_HEADER_MS = 800;
 const ROUND_RESULT_MS = 2500;
 const HIT_FEEDBACK_MS = 100;
+const SWIPE_HIT_FEEDBACK_MS = 150;
 const MISS_FEEDBACK_MS = 100;
 const FALSE_START_FEEDBACK_MS = 300;
 const TIMEOUT_FEEDBACK_MS = 100;
@@ -35,6 +36,8 @@ function generateOpponentResults(seed: string, roundConfigs: RoundConfig[]): Pro
   for (let r = 0; r < roundConfigs.length; r++) {
     const rr: PromptResult[] = [];
     for (let p = 0; p < roundConfigs[r]!.prompts.length; p++) {
+      const promptType = roundConfigs[r]!.prompts[p]!.prompt.type;
+      const extraMs = promptType === 'swipe' ? SIMULATED_OPPONENT.SWIPE_EXTRA_MS : 0;
       const fsRoll = next();
       if (fsRoll < SIMULATED_OPPONENT.FALSE_START_RATE) {
         rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: null, hit: false, falseStart: true, missed: false, timedOut: false, missCount: 0 });
@@ -42,26 +45,16 @@ function generateOpponentResults(seed: string, roundConfigs: RoundConfig[]): Pro
       }
       const hitRoll = next();
       if (hitRoll >= SIMULATED_OPPONENT.HIT_RATE) {
-        // Opponent misses once, then hits 200ms later
-        const baseMs = Math.round(randomInRange(next, SIMULATED_OPPONENT.MIN_REACTION_MS, SIMULATED_OPPONENT.MAX_REACTION_MS));
+        const baseMs = Math.round(randomInRange(next, SIMULATED_OPPONENT.MIN_REACTION_MS + extraMs, SIMULATED_OPPONENT.MAX_REACTION_MS + extraMs));
         rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: baseMs + 200, hit: true, falseStart: false, missed: false, timedOut: false, missCount: 1 });
         continue;
       }
-      const ms = Math.round(randomInRange(next, SIMULATED_OPPONENT.MIN_REACTION_MS, SIMULATED_OPPONENT.MAX_REACTION_MS));
+      const ms = Math.round(randomInRange(next, SIMULATED_OPPONENT.MIN_REACTION_MS + extraMs, SIMULATED_OPPONENT.MAX_REACTION_MS + extraMs));
       rr.push({ promptNumber: p + 1, playerId: OPPONENT_ID, reactionMs: ms, hit: true, falseStart: false, missed: false, timedOut: false, missCount: 0 });
     }
     results.push(rr);
   }
   return results;
-}
-
-function feedbackDuration(type: PromptFeedback): number {
-  switch (type) {
-    case 'hit': return HIT_FEEDBACK_MS;
-    case 'miss': return MISS_FEEDBACK_MS;
-    case 'false_start': return FALSE_START_FEEDBACK_MS;
-    case 'timeout': return TIMEOUT_FEEDBACK_MS;
-  }
 }
 
 export function useGame() {
@@ -90,7 +83,6 @@ export function useGame() {
     };
   }, []);
 
-  // Debug info sync
   useEffect(() => {
     const p = phase;
     const m = match;
@@ -118,9 +110,7 @@ export function useGame() {
   }
 
   function addPlayerResult(m: MatchState, roundIndex: number, result: PromptResult): MatchState {
-    const newResults = m.playerResults.map((r, i) =>
-      i === roundIndex ? [...r, result] : r,
-    );
+    const newResults = m.playerResults.map((r, i) => i === roundIndex ? [...r, result] : r);
     return { ...m, playerResults: newResults };
   }
 
@@ -145,7 +135,6 @@ export function useGame() {
   }
 
   function onPromptTimeout(roundIndex: number, promptIndex: number) {
-    // Clear any pending feedback timer (e.g. miss feedback in progress)
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = undefined; }
     timeoutRef.current = undefined;
 
@@ -185,20 +174,14 @@ export function useGame() {
     if (roundResult.winnerId === PLAYER_ID) newScore[0]++;
     else if (roundResult.winnerId === OPPONENT_ID) newScore[1]++;
 
-    const updated: MatchState = {
-      ...m,
-      roundResults: [...m.roundResults, roundResult],
-      score: newScore,
-    };
+    const updated: MatchState = { ...m, roundResults: [...m.roundResults, roundResult], score: newScore };
     setMatch(updated);
     setPhase({ kind: 'round_result', roundIndex });
 
     timerRef.current = setTimeout(() => {
       const latest = matchRef.current;
       if (!latest) return;
-      const allPlayed = latest.roundResults.length >= QUICK_DRAW_CONSTANTS.ROUNDS_PER_MATCH;
-
-      if (allPlayed) {
+      if (latest.roundResults.length >= QUICK_DRAW_CONSTANTS.ROUNDS_PER_MATCH) {
         setPhase({ kind: 'match_result' });
       } else {
         startRound(roundIndex + 1);
@@ -209,9 +192,7 @@ export function useGame() {
   function startRound(roundIndex: number) {
     const m = matchRef.current;
     if (!m) return;
-    const newResults = m.playerResults.map((r, i) =>
-      i === roundIndex ? [] : r,
-    );
+    const newResults = m.playerResults.map((r, i) => i === roundIndex ? [] : r);
     setMatch({ ...m, playerResults: newResults });
     setPhase({ kind: 'round_header', roundIndex });
 
@@ -230,13 +211,11 @@ export function useGame() {
       step++;
       if (step < values.length) {
         setPhase({ kind: 'countdown', value: values[step]! });
-        const duration = step === values.length - 1 ? GO_DURATION_MS : COUNTDOWN_STEP_MS;
-        timerRef.current = setTimeout(advance, duration);
+        timerRef.current = setTimeout(advance, step === values.length - 1 ? GO_DURATION_MS : COUNTDOWN_STEP_MS);
       } else {
         startRound(0);
       }
     }
-
     timerRef.current = setTimeout(advance, COUNTDOWN_STEP_MS);
   }
 
@@ -254,31 +233,24 @@ export function useGame() {
     const newMatch: MatchState = {
       seed, wagerAmount, roundConfigs,
       playerResults: roundConfigs.map(() => []),
-      opponentResults,
-      roundResults: [],
-      score: [0, 0],
+      opponentResults, roundResults: [], score: [0, 0],
     };
     startCountdown(newMatch);
   }
 
-  function openTutorial() {
-    clearTimers();
-    setPhase({ kind: 'tutorial' });
-  }
+  function openTutorial() { clearTimers(); setPhase({ kind: 'tutorial' }); }
+  function completeTutorial() { localStorage.setItem(TUTORIAL_KEY, 'true'); setPhase({ kind: 'start' }); }
 
-  function completeTutorial() {
-    localStorage.setItem(TUTORIAL_KEY, 'true');
-    setPhase({ kind: 'start' });
-  }
-
-  function handleTap(normalizedX: number, normalizedY: number, timestamp: number, _isTrusted: boolean) {
+  function handleInput(input: GameInput) {
     const p = phaseRef.current;
     const m = matchRef.current;
     if (!m) return;
 
-    setDebugInfo(prev => ({ ...prev, lastTapNormalized: { x: normalizedX, y: normalizedY } }));
+    setDebugInfo(prev => ({ ...prev, lastTapNormalized: { x: input.normalizedX, y: input.normalizedY } }));
 
-    if (p.kind === 'prompt_delay') {
+    // False start during delay
+    if (input.gestureType === 'false_start') {
+      if (p.kind !== 'prompt_delay') return;
       clearTimers();
       const { roundIndex, promptIndex } = p;
       const result: PromptResult = {
@@ -288,85 +260,85 @@ export function useGame() {
       const updated = addPlayerResult(m, roundIndex, result);
       setMatch(updated);
       setPhase({
-        kind: 'prompt_feedback', roundIndex, promptIndex,
-        feedbackType: 'false_start',
-        tapPosition: { x: normalizedX, y: normalizedY },
+        kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'false_start',
+        tapPosition: { x: input.normalizedX, y: input.normalizedY },
       });
-      timerRef.current = setTimeout(() => {
-        advanceToNextPrompt(roundIndex, promptIndex);
-      }, FALSE_START_FEEDBACK_MS);
+      timerRef.current = setTimeout(() => { advanceToNextPrompt(roundIndex, promptIndex); }, FALSE_START_FEEDBACK_MS);
       return;
     }
 
-    if (p.kind === 'prompt_active') {
-      if (tappedRef.current) return;
-      tappedRef.current = true;
+    // Active phase input (tap or swipe)
+    if (p.kind !== 'prompt_active') return;
+    if (tappedRef.current) return;
+    tappedRef.current = true;
 
-      const { roundIndex, promptIndex } = p;
-      const prompt = m.roundConfigs[roundIndex]!.prompts[promptIndex]!.prompt;
-      const reactionMs = timestamp - promptAppearedAtRef.current;
-      const onTarget = isTapOnTarget({ x: normalizedX, y: normalizedY }, prompt);
-      const timeValid = isReactionTimeValid(reactionMs);
+    const { roundIndex, promptIndex } = p;
+    const promptConfig = m.roundConfigs[roundIndex]!.prompts[promptIndex]!;
+    const prompt = promptConfig.prompt;
+    const reactionMs = input.timestamp - promptAppearedAtRef.current;
+    const timeValid = isReactionTimeValid(reactionMs);
 
-      setDebugInfo(prev => ({
-        ...prev,
-        lastReactionMs: Math.round(reactionMs),
-        lastOnTarget: onTarget,
-      }));
+    setDebugInfo(prev => ({ ...prev, lastReactionMs: Math.round(reactionMs) }));
 
-      // Timeout from tap (shouldn't normally happen, but handle it)
-      if (!timeValid.valid && timeValid.reason === 'timeout') {
-        clearTimers();
-        const result: PromptResult = {
-          promptNumber: promptIndex + 1, playerId: PLAYER_ID,
-          reactionMs: null, hit: false, falseStart: false, missed: false, timedOut: true,
-          missCount: missCountRef.current,
-        };
-        const updated = addPlayerResult(m, roundIndex, result);
-        setMatch(updated);
-        setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'timeout' });
-        timerRef.current = setTimeout(() => {
-          advanceToNextPrompt(roundIndex, promptIndex);
-        }, TIMEOUT_FEEDBACK_MS);
-        return;
-      }
-
-      // Miss — keep prompt active, accumulate penalty, allow re-tap
-      if (!onTarget || (!timeValid.valid && timeValid.reason === 'below_human_floor')) {
-        missCountRef.current++;
-        // Don't clear timeoutRef — it keeps counting from original appearance
-        setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'miss' });
-        timerRef.current = setTimeout(() => {
-          tappedRef.current = false;
-          setPhase({ kind: 'prompt_active', roundIndex, promptIndex, promptAppearedAt: promptAppearedAtRef.current });
-        }, MISS_FEEDBACK_MS);
-        return;
-      }
-
-      // Hit!
+    // Timeout
+    if (!timeValid.valid && timeValid.reason === 'timeout') {
       clearTimers();
       const result: PromptResult = {
         promptNumber: promptIndex + 1, playerId: PLAYER_ID,
-        reactionMs: Math.round(reactionMs), hit: true, falseStart: false, missed: false, timedOut: false,
+        reactionMs: null, hit: false, falseStart: false, missed: false, timedOut: true,
         missCount: missCountRef.current,
       };
-      const updated = addPlayerResult(m, roundIndex, result);
-      setMatch(updated);
-      setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'hit' });
-      timerRef.current = setTimeout(() => {
-        advanceToNextPrompt(roundIndex, promptIndex);
-      }, feedbackDuration('hit'));
+      setMatch(addPlayerResult(m, roundIndex, result));
+      setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'timeout' });
+      timerRef.current = setTimeout(() => { advanceToNextPrompt(roundIndex, promptIndex); }, TIMEOUT_FEEDBACK_MS);
       return;
     }
-  }
 
-  function resetToStart() {
+    // Determine if the input matches the prompt type
+    let onTarget = false;
+
+    if (prompt.type === 'tap' && input.gestureType === 'tap') {
+      onTarget = isTapOnTarget({ x: input.normalizedX, y: input.normalizedY }, prompt);
+    } else if (prompt.type === 'swipe' && input.gestureType === 'swipe' && input.swipeDirection && prompt.swipeDirection) {
+      // For swipe validation we use pixel distance (handled in GameplayScreen), direction check here
+      onTarget = input.swipeDirection === prompt.swipeDirection;
+    }
+    // Wrong input type (tap on swipe or swipe on tap) → onTarget stays false
+
+    if (!timeValid.valid && timeValid.reason === 'below_human_floor') {
+      onTarget = false;
+    }
+
+    setDebugInfo(prev => ({ ...prev, lastOnTarget: onTarget }));
+
+    // Miss — keep prompt active, accumulate penalty, allow re-tap
+    if (!onTarget) {
+      missCountRef.current++;
+      setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'miss' });
+      timerRef.current = setTimeout(() => {
+        tappedRef.current = false;
+        setPhase({ kind: 'prompt_active', roundIndex, promptIndex, promptAppearedAt: promptAppearedAtRef.current });
+      }, MISS_FEEDBACK_MS);
+      return;
+    }
+
+    // Hit!
     clearTimers();
-    setPhase({ kind: 'start' });
-    setMatch(null);
+    const isSwipe = prompt.type === 'swipe';
+    const result: PromptResult = {
+      promptNumber: promptIndex + 1, playerId: PLAYER_ID,
+      reactionMs: Math.round(reactionMs), hit: true, falseStart: false, missed: false, timedOut: false,
+      missCount: missCountRef.current,
+    };
+    setMatch(addPlayerResult(m, roundIndex, result));
+    setPhase({ kind: 'prompt_feedback', roundIndex, promptIndex, feedbackType: 'hit' });
+    timerRef.current = setTimeout(() => {
+      advanceToNextPrompt(roundIndex, promptIndex);
+    }, isSwipe ? SWIPE_HIT_FEEDBACK_MS : HIT_FEEDBACK_MS);
   }
 
-  // Derived values
+  function resetToStart() { clearTimers(); setPhase({ kind: 'start' }); setMatch(null); }
+
   let runningTotalMs = 0;
   if (match && 'roundIndex' in phase) {
     const ri = (phase as { roundIndex: number }).roundIndex;
@@ -376,6 +348,6 @@ export function useGame() {
   return {
     phase, match, debugInfo, runningTotalMs,
     currentMissCount: missCountRef.current,
-    startMatch, openTutorial, completeTutorial, handleTap, resetToStart,
+    startMatch, openTutorial, completeTutorial, handleInput, resetToStart,
   };
 }

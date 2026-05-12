@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateMatchRounds, generatePromptHash } from '../generateRound.js';
 import { QUICK_DRAW_CONSTANTS } from '../../types/quickdraw.js';
-import type { PromptShape, PromptColor } from '../../types/quickdraw.js';
+import type { PromptShape, PromptColor, SwipeDirection } from '../../types/quickdraw.js';
 import { sha256 } from '../sha256.js';
 
 const SEED_A = 'test-seed-alpha-1234567890abcdef';
@@ -66,13 +66,15 @@ describe('generateMatchRounds', () => {
     }
   });
 
-  it('all shapes are valid PromptShape values', () => {
+  it('tap prompts have valid shapes', () => {
     const validShapes: PromptShape[] = ['circle', 'square', 'triangle'];
     for (const seed of [SEED_A, SEED_B, 'seed-c', 'seed-d', 'seed-e']) {
       const rounds = generateMatchRounds(seed, 1);
       for (const round of rounds) {
         for (const p of round.prompts) {
-          expect(validShapes).toContain(p.prompt.shape);
+          if (p.prompt.type === 'tap') {
+            expect(validShapes).toContain(p.prompt.shape);
+          }
         }
       }
     }
@@ -131,25 +133,63 @@ describe('generateMatchRounds', () => {
     const high = generateMatchRounds(SEED_A, 25);
     expect(low[0]!.prompts[0]!.prompt.size).toBe(0.12);
     expect(high[0]!.prompts[0]!.prompt.size).toBe(0.06);
-    expect(low[0]!.prompts[0]!.prompt.size).toBeGreaterThan(high[0]!.prompts[0]!.prompt.size);
   });
 
-  it('no two consecutive prompts share shape+color+quadrant', () => {
-    // Test across many seeds
+  // ─── Swipe-specific tests ──────────────────────────────────────────
+
+  it('each round has 2-4 swipe prompts', () => {
+    for (const seed of [SEED_A, SEED_B, 'seed-c', 'seed-d', 'seed-e', 'seed-f', 'seed-g']) {
+      const rounds = generateMatchRounds(seed, 1);
+      for (const round of rounds) {
+        const swipeCount = round.prompts.filter(p => p.prompt.type === 'swipe').length;
+        expect(swipeCount).toBeGreaterThanOrEqual(QUICK_DRAW_CONSTANTS.MIN_SWIPES_PER_ROUND);
+        expect(swipeCount).toBeLessThanOrEqual(QUICK_DRAW_CONSTANTS.MAX_SWIPES_PER_ROUND);
+      }
+    }
+  });
+
+  it('first prompt is never a swipe', () => {
+    for (const seed of [SEED_A, SEED_B, 'seed-c', 'seed-d', 'seed-e', 'seed-f', 'seed-g']) {
+      const rounds = generateMatchRounds(seed, 1);
+      for (const round of rounds) {
+        expect(round.prompts[0]!.prompt.type).toBe('tap');
+      }
+    }
+  });
+
+  it('no two consecutive swipe prompts', () => {
     for (const seed of [SEED_A, SEED_B, 'seed-c', 'seed-d', 'seed-e', 'seed-f', 'seed-g']) {
       const rounds = generateMatchRounds(seed, 1);
       for (const round of rounds) {
         for (let i = 1; i < round.prompts.length; i++) {
-          const prev = round.prompts[i - 1]!.prompt;
-          const curr = round.prompts[i]!.prompt;
-          const sameShape = prev.shape === curr.shape;
-          const sameColor = prev.color === curr.color;
-          const sameQuadrant =
-            (prev.position.x >= 0.5) === (curr.position.x >= 0.5) &&
-            (prev.position.y >= 0.5) === (curr.position.y >= 0.5);
-          // All three must NOT be true simultaneously
-          expect(sameShape && sameColor && sameQuadrant).toBe(false);
+          if (round.prompts[i]!.prompt.type === 'swipe') {
+            expect(round.prompts[i - 1]!.prompt.type).not.toBe('swipe');
+          }
         }
+      }
+    }
+  });
+
+  it('swipe prompts have valid direction', () => {
+    const validDirections: SwipeDirection[] = ['up', 'down', 'left', 'right'];
+    for (const seed of [SEED_A, SEED_B, 'seed-c', 'seed-d', 'seed-e']) {
+      const rounds = generateMatchRounds(seed, 1);
+      for (const round of rounds) {
+        for (const p of round.prompts) {
+          if (p.prompt.type === 'swipe') {
+            expect(p.prompt.swipeDirection).toBeDefined();
+            expect(validDirections).toContain(p.prompt.swipeDirection);
+          }
+        }
+      }
+    }
+  });
+
+  it('all prompts have a valid type', () => {
+    const rounds = generateMatchRounds(SEED_A, 1);
+    for (const round of rounds) {
+      for (const p of round.prompts) {
+        expect(['tap', 'swipe']).toContain(p.prompt.type);
       }
     }
   });

@@ -12,7 +12,7 @@ import { DebugOverlay } from './game/DebugOverlay.js';
 export function App(): JSX.Element {
   const {
     phase, match, debugInfo, currentMissCount, startMatch,
-    openTutorial, completeTutorial, handleTap, resetToStart,
+    openTutorial, completeTutorial, handleInput, resetToStart,
   } = useGame();
   const [showDebug, setShowDebug] = useState(false);
 
@@ -35,13 +35,10 @@ export function App(): JSX.Element {
     switch (phase.kind) {
       case 'start':
         return <StartScreen onPlay={startMatch} onTutorial={openTutorial} />;
-
       case 'tutorial':
         return <TutorialScreen onComplete={completeTutorial} />;
-
       case 'countdown':
         return <CountdownScreen value={phase.value} />;
-
       case 'round_header':
         return <RoundHeaderScreen roundIndex={phase.roundIndex} score={match?.score ?? [0, 0]} />;
 
@@ -63,7 +60,7 @@ export function App(): JSX.Element {
             feedbackType={phase.kind === 'prompt_feedback' ? phase.feedbackType : undefined}
             results={results}
             currentMissCount={currentMissCount}
-            onTap={handleTap}
+            onInput={handleInput}
             tapPosition={phase.kind === 'prompt_feedback' ? phase.tapPosition : undefined}
           />
         );

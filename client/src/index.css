@@ -104,3 +104,13 @@ body {
 .animate-float-up {
   animation: float-up 300ms ease-out forwards;
 }
+
+@keyframes slide-right { to { transform: translate(calc(-50% + 200px), -50%); opacity: 0; } }
+@keyframes slide-left { to { transform: translate(calc(-50% - 200px), -50%); opacity: 0; } }
+@keyframes slide-up { to { transform: translate(-50%, calc(-50% - 200px)); opacity: 0; } }
+@keyframes slide-down { to { transform: translate(-50%, calc(-50% + 200px)); opacity: 0; } }
+
+.animate-slide-right { animation: slide-right 150ms ease-out forwards; }
+.animate-slide-left { animation: slide-left 150ms ease-out forwards; }
+.animate-slide-up { animation: slide-up 150ms ease-out forwards; }
+.animate-slide-down { animation: slide-down 150ms ease-out forwards; }

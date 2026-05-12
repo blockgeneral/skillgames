@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import type { Prompt } from '@skillgamez/shared';
-import { isTapOnTarget } from '@skillgamez/shared';
+import type { Prompt, SwipeDirection } from '@skillgamez/shared';
+import { isTapOnTarget, QUICK_DRAW_CONSTANTS } from '@skillgamez/shared';
 
 interface Props {
   onComplete: () => void;
@@ -14,12 +14,13 @@ const COLORS: Record<string, string> = {
 };
 
 const PRACTICE_PROMPTS: Prompt[] = [
-  { shape: 'circle', color: 'red', position: { x: 0.5, y: 0.5 }, size: 0.12 },
-  { shape: 'square', color: 'blue', position: { x: 0.3, y: 0.4 }, size: 0.12 },
-  { shape: 'triangle', color: 'green', position: { x: 0.7, y: 0.6 }, size: 0.12 },
-  { shape: 'circle', color: 'yellow', position: { x: 0.4, y: 0.7 }, size: 0.12 },
+  { type: 'tap', shape: 'circle', color: 'red', position: { x: 0.5, y: 0.5 }, size: 0.12 },
+  { type: 'tap', shape: 'square', color: 'blue', position: { x: 0.3, y: 0.4 }, size: 0.12 },
+  { type: 'swipe', shape: 'circle', color: 'green', position: { x: 0.6, y: 0.5 }, size: 0.12, swipeDirection: 'right' },
+  { type: 'tap', shape: 'triangle', color: 'yellow', position: { x: 0.4, y: 0.6 }, size: 0.12 },
+  { type: 'swipe', shape: 'circle', color: 'red', position: { x: 0.5, y: 0.4 }, size: 0.12, swipeDirection: 'up' },
 ];
-const PRACTICE_DELAYS = [1200, 700, 600, 800];
+const PRACTICE_DELAYS = [1200, 700, 600, 800, 700];
 
 type TutorialPhase =
   | { kind: 'card'; index: number }
@@ -33,6 +34,7 @@ export function TutorialScreen({ onComplete }: Props): JSX.Element {
   const [reactionTimes, setReactionTimes] = useState<number[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const tappedRef = useRef(false);
+  const pointerStartRef = useRef<{ cx: number; cy: number } | null>(null);
 
   useEffect(() => {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
@@ -41,50 +43,68 @@ export function TutorialScreen({ onComplete }: Props): JSX.Element {
   const startPractice = useCallback(() => {
     setPhase({ kind: 'practice_delay', promptIndex: 0 });
     timerRef.current = setTimeout(() => {
-      const now = performance.now();
       tappedRef.current = false;
-      setPhase({ kind: 'practice_active', promptIndex: 0, appearedAt: now });
+      setPhase({ kind: 'practice_active', promptIndex: 0, appearedAt: performance.now() });
     }, PRACTICE_DELAYS[0]!);
   }, []);
 
   const advancePractice = useCallback((promptIndex: number, reactionMs: number | null) => {
-    if (reactionMs !== null) {
-      setReactionTimes(prev => [...prev, reactionMs]);
-    }
     const next = promptIndex + 1;
     if (next >= PRACTICE_PROMPTS.length) {
-      // Compute average from collected times + this one
-      setReactionTimes(prev => {
-        const all = reactionMs !== null ? [...prev, reactionMs] : prev;
-        const avg = all.length > 0 ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : 0;
-        // Use a timeout to set phase to avoid setting state during render
-        setTimeout(() => setPhase({ kind: 'done', avgMs: avg }), 0);
-        return all;
-      });
+      const all = reactionMs !== null ? [...reactionTimes, reactionMs] : [...reactionTimes];
+      const avg = all.length > 0 ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : 0;
+      setReactionTimes(all);
+      setPhase({ kind: 'done', avgMs: avg });
       return;
     }
+    if (reactionMs !== null) setReactionTimes(prev => [...prev, reactionMs]);
     setPhase({ kind: 'practice_delay', promptIndex: next });
     timerRef.current = setTimeout(() => {
-      const now = performance.now();
       tappedRef.current = false;
-      setPhase({ kind: 'practice_active', promptIndex: next, appearedAt: now });
+      setPhase({ kind: 'practice_active', promptIndex: next, appearedAt: performance.now() });
     }, PRACTICE_DELAYS[next]!);
-  }, []);
+  }, [reactionTimes]);
 
-  const handlePracticeTap = useCallback((e: React.PointerEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     if (phase.kind !== 'practice_active') return;
     if (tappedRef.current) return;
+    pointerStartRef.current = { cx: e.clientX, cy: e.clientY };
+  }, [phase]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    if (phase.kind !== 'practice_active' || !pointerStartRef.current) return;
+    if (tappedRef.current) return;
     tappedRef.current = true;
 
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
     const timestamp = performance.now();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const nx = (e.clientX - rect.left) / rect.width;
-    const ny = (e.clientY - rect.top) / rect.height;
     const prompt = PRACTICE_PROMPTS[phase.promptIndex]!;
-    const hit = isTapOnTarget({ x: nx, y: ny }, prompt);
-    const reactionMs = hit ? Math.round(timestamp - phase.appearedAt) : null;
 
+    const dxPx = e.clientX - start.cx;
+    const dyPx = e.clientY - start.cy;
+    const distPx = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
+
+    let hit = false;
+    if (prompt.type === 'tap') {
+      if (distPx < QUICK_DRAW_CONSTANTS.SWIPE_MIN_DISTANCE_PX) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const nx = (start.cx - rect.left) / rect.width;
+        const ny = (start.cy - rect.top) / rect.height;
+        hit = isTapOnTarget({ x: nx, y: ny }, prompt);
+      }
+    } else if (prompt.type === 'swipe' && prompt.swipeDirection) {
+      if (distPx >= QUICK_DRAW_CONSTANTS.SWIPE_MIN_DISTANCE_PX) {
+        let dir: SwipeDirection;
+        if (Math.abs(dxPx) > Math.abs(dyPx)) { dir = dxPx > 0 ? 'right' : 'left'; }
+        else { dir = dyPx > 0 ? 'down' : 'up'; }
+        hit = dir === prompt.swipeDirection;
+      }
+    }
+
+    const reactionMs = hit ? Math.round(timestamp - phase.appearedAt) : null;
     setPhase({ kind: 'practice_feedback', promptIndex: phase.promptIndex, reactionMs, hit });
     timerRef.current = setTimeout(() => {
       advancePractice(phase.promptIndex, reactionMs);
@@ -94,30 +114,11 @@ export function TutorialScreen({ onComplete }: Props): JSX.Element {
   // ─── Card rendering ─────────────────────────────────────────────────
   if (phase.kind === 'card') {
     const cards = [
-      {
-        title: 'Tap the shapes',
-        body: 'Shapes will appear on screen. Tap them as fast as you can!',
-        shape: 'circle' as const,
-        color: '#FF3B3B',
-      },
-      {
-        title: "Don't tap early",
-        body: "Wait for the shape to appear, or you get a +1000ms penalty!",
-        shape: 'square' as const,
-        color: '#F97316',
-      },
-      {
-        title: '8 per round, 3 rounds',
-        body: '8 shapes per round. 3 rounds per match. Fastest total time wins!',
-        shape: 'triangle' as const,
-        color: '#22C55E',
-      },
-      {
-        title: "Let's practice!",
-        body: 'Tap 4 shapes as fast as you can. No pressure — just a warm-up.',
-        shape: null,
-        color: null,
-      },
+      { title: 'Tap the shapes', body: 'Shapes will appear on screen. Tap them as fast as you can!', illustration: 'circle' as const },
+      { title: "Don't tap early", body: 'Wait for the shape to appear, or you get a +1000ms penalty!', illustration: 'square' as const },
+      { title: 'Swipe the arrows', body: 'See an arrow? Swipe in that direction! Wrong direction = penalty.', illustration: 'arrow' as const },
+      { title: '8 per round, 3 rounds', body: '8 shapes per round. 3 rounds per match. Fastest total time wins!', illustration: 'triangle' as const },
+      { title: "Let's practice!", body: "Tap shapes and swipe arrows. No pressure \u2014 just a warm-up.", illustration: null },
     ];
 
     const card = cards[phase.index]!;
@@ -126,49 +127,35 @@ export function TutorialScreen({ onComplete }: Props): JSX.Element {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 animate-fade-in">
         <div className="w-full max-w-xs bg-slate-900/80 rounded-2xl p-8 flex flex-col items-center gap-6 border border-slate-800">
-          {/* Shape illustration */}
-          {card.shape && (
+          {card.illustration && (
             <div className="w-16 h-16 flex items-center justify-center">
-              {card.shape === 'circle' && (
-                <div className="w-14 h-14 rounded-full" style={{ backgroundColor: card.color! }} />
+              {card.illustration === 'circle' && <div className="w-14 h-14 rounded-full" style={{ backgroundColor: '#FF3B3B' }} />}
+              {card.illustration === 'square' && <div className="w-14 h-14" style={{ backgroundColor: '#F97316' }} />}
+              {card.illustration === 'triangle' && (
+                <svg width={56} height={56} viewBox="0 0 100 100"><polygon points="50,6.7 93.3,75 6.7,75" fill="#22C55E" /></svg>
               )}
-              {card.shape === 'square' && (
-                <div className="w-14 h-14" style={{ backgroundColor: card.color! }} />
-              )}
-              {card.shape === 'triangle' && (
+              {card.illustration === 'arrow' && (
                 <svg width={56} height={56} viewBox="0 0 100 100">
-                  <polygon points="50,6.7 93.3,75 6.7,75" fill={card.color!} />
+                  <path d="M 25,15 L 75,50 L 25,85" stroke="#3B82FF" strokeWidth="12" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               )}
             </div>
           )}
-          {!card.shape && (
-            <div className="text-4xl">🎯</div>
-          )}
+          {!card.illustration && <div className="text-4xl">{'\uD83C\uDFAF'}</div>}
 
           <h2 className="text-xl font-bold text-white text-center">{card.title}</h2>
           <p className="text-sm text-slate-400 text-center leading-relaxed">{card.body}</p>
 
-          {/* Dots indicator */}
           <div className="flex gap-2">
             {cards.map((_, i) => (
-              <div
-                key={i}
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: i === phase.index ? '#22D3EE' : '#334155' }}
-              />
+              <div key={i} className="w-2 h-2 rounded-full" style={{ backgroundColor: i === phase.index ? '#22D3EE' : '#334155' }} />
             ))}
           </div>
 
           <button
-            onPointerDown={() => {
-              if (isLast) startPractice();
-              else setPhase({ kind: 'card', index: phase.index + 1 });
-            }}
+            onPointerDown={() => { if (isLast) startPractice(); else setPhase({ kind: 'card', index: phase.index + 1 }); }}
             className={`w-full py-3 rounded-xl font-bold text-sm tracking-wider transition-colors ${
-              isLast
-                ? 'bg-cyan-500 text-black active:bg-cyan-400'
-                : 'bg-slate-800 text-slate-300 active:bg-slate-700'
+              isLast ? 'bg-cyan-500 text-black active:bg-cyan-400' : 'bg-slate-800 text-slate-300 active:bg-slate-700'
             }`}
           >
             {isLast ? 'PRACTICE' : 'NEXT'}
@@ -180,39 +167,34 @@ export function TutorialScreen({ onComplete }: Props): JSX.Element {
 
   // ─── Practice rendering ─────────────────────────────────────────────
   if (phase.kind === 'practice_delay' || phase.kind === 'practice_active' || phase.kind === 'practice_feedback') {
-    const pIdx = phase.kind === 'practice_delay' ? phase.promptIndex
-      : phase.kind === 'practice_active' ? phase.promptIndex
-      : phase.promptIndex;
+    const pIdx = phase.promptIndex;
     const prompt = PRACTICE_PROMPTS[pIdx]!;
-    const showShape = phase.kind === 'practice_active' || (phase.kind === 'practice_feedback' && phase.hit);
+    const showPrompt = phase.kind === 'practice_active' || (phase.kind === 'practice_feedback' && phase.hit);
+    const isSwipe = prompt.type === 'swipe';
 
     return (
       <div
         className="relative w-full h-full"
-        onPointerDown={handlePracticeTap}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
         style={{ touchAction: 'none', cursor: 'pointer' }}
       >
-        {/* Practice progress */}
         <div className="absolute top-4 left-0 right-0 flex justify-center gap-2 z-10">
           {PRACTICE_PROMPTS.map((_, i) => (
-            <div
-              key={i}
-              className="w-3 h-3 rounded-full"
-              style={{
-                backgroundColor: i < reactionTimes.length ? '#22C55E'
-                  : i === pIdx && phase.kind === 'practice_feedback' ? (phase.hit ? '#22C55E' : '#FF3B3B')
-                  : '#333',
-              }}
-            />
+            <div key={i} className="w-3 h-3 rounded-full" style={{
+              backgroundColor: i < reactionTimes.length ? '#22C55E'
+                : i === pIdx && phase.kind === 'practice_feedback' ? (phase.hit ? '#22C55E' : '#FF3B3B')
+                : '#333',
+            }} />
           ))}
         </div>
 
-        <p className="absolute top-4 left-4 text-sm text-slate-600 font-mono z-10">
-          PRACTICE
-        </p>
+        <p className="absolute top-4 left-4 text-sm text-slate-600 font-mono z-10">PRACTICE</p>
 
-        {showShape && (
-          <PracticeShape prompt={prompt} flash={phase.kind === 'practice_feedback' && phase.hit} />
+        {showPrompt && (
+          isSwipe
+            ? <PracticeArrow prompt={prompt} slideOff={phase.kind === 'practice_feedback' && phase.hit ? prompt.swipeDirection : undefined} />
+            : <PracticeShape prompt={prompt} flash={phase.kind === 'practice_feedback' && phase.hit} />
         )}
 
         {phase.kind === 'practice_feedback' && phase.reactionMs !== null && (
@@ -227,7 +209,7 @@ export function TutorialScreen({ onComplete }: Props): JSX.Element {
     );
   }
 
-  // ─── Done rendering ─────────────────────────────────────────────────
+  // ─── Done ───────────────────────────────────────────────────────────
   if (phase.kind === 'done') {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-8 px-6 animate-fade-in">
@@ -256,26 +238,34 @@ function PracticeShape({ prompt, flash }: { prompt: Prompt; flash: boolean }): J
   const color = COLORS[prompt.color] ?? '#fff';
 
   return (
-    <div
-      className={`animate-pop-in ${flash ? 'animate-flash-white' : ''}`}
-      style={{
-        position: 'absolute',
-        left: `${prompt.position.x * 100}%`,
-        top: `${prompt.position.y * 100}%`,
-        transform: 'translate(-50%, -50%) scale(1)',
-      }}
-    >
-      {prompt.shape === 'circle' && (
-        <div style={{ width: pxSize * 2, height: pxSize * 2, borderRadius: '50%', backgroundColor: color }} />
-      )}
-      {prompt.shape === 'square' && (
-        <div style={{ width: pxSize * 2, height: pxSize * 2, backgroundColor: color }} />
-      )}
+    <div className={`animate-pop-in ${flash ? 'animate-flash-white' : ''}`}
+      style={{ position: 'absolute', left: `${prompt.position.x * 100}%`, top: `${prompt.position.y * 100}%`, transform: 'translate(-50%, -50%) scale(1)' }}>
+      {prompt.shape === 'circle' && <div style={{ width: pxSize * 2, height: pxSize * 2, borderRadius: '50%', backgroundColor: color }} />}
+      {prompt.shape === 'square' && <div style={{ width: pxSize * 2, height: pxSize * 2, backgroundColor: color }} />}
       {prompt.shape === 'triangle' && (
         <svg width={pxSize * 2} height={pxSize * 2} viewBox="0 0 100 100" style={{ overflow: 'visible' }}>
           <polygon points="50,6.7 93.3,75 6.7,75" fill={color} />
         </svg>
       )}
+    </div>
+  );
+}
+
+const ARROW_ROTATION: Record<string, number> = { right: 0, down: 90, left: 180, up: 270 };
+
+function PracticeArrow({ prompt, slideOff }: { prompt: Prompt; slideOff?: SwipeDirection }): JSX.Element {
+  const vmin = typeof window !== 'undefined' ? Math.min(window.innerWidth, window.innerHeight) : 400;
+  const pxSize = prompt.size * vmin;
+  const color = COLORS[prompt.color] ?? '#fff';
+  const direction = prompt.swipeDirection ?? 'right';
+  const slideClass = slideOff ? `animate-slide-${slideOff}` : '';
+
+  return (
+    <div className={`animate-pop-in ${slideClass}`}
+      style={{ position: 'absolute', left: `${prompt.position.x * 100}%`, top: `${prompt.position.y * 100}%`, transform: 'translate(-50%, -50%) scale(1)' }}>
+      <svg width={pxSize * 2} height={pxSize * 2} viewBox="0 0 100 100" style={{ transform: `rotate(${ARROW_ROTATION[direction]}deg)` }}>
+        <path d="M 25,15 L 75,50 L 25,85" stroke={color} strokeWidth="12" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </div>
   );
 }

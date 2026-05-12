@@ -6,6 +6,12 @@ export type PromptShape = 'circle' | 'square' | 'triangle';
 /** Color of the visual prompt target */
 export type PromptColor = 'red' | 'blue' | 'green' | 'yellow';
 
+/** Whether the player taps or swipes */
+export type PromptType = 'tap' | 'swipe';
+
+/** Direction for swipe prompts */
+export type SwipeDirection = 'up' | 'down' | 'left' | 'right';
+
 /** Position in normalized 0-1 coordinate space */
 export interface PromptPosition {
   readonly x: number;
@@ -17,10 +23,12 @@ export type PromptSize = number;
 
 /** Full prompt definition for a single visual target */
 export interface Prompt {
+  readonly type: PromptType;
   readonly shape: PromptShape;
   readonly color: PromptColor;
   readonly position: PromptPosition;
   readonly size: PromptSize;
+  readonly swipeDirection?: SwipeDirection;
 }
 
 /** Configuration for a single prompt within a round */
@@ -87,6 +95,10 @@ export const QUICK_DRAW_CONSTANTS = {
   REACTION_CEILING_MS: 2000,
   MISS_PENALTY_MS: 500,
   FALSE_START_PENALTY_MS: 1000,
+  SWIPE_MIN_DISTANCE_PX: 40,
+  MIN_SWIPES_PER_ROUND: 2,
+  MAX_SWIPES_PER_ROUND: 4,
   PROMPT_SHAPES: ['circle', 'square', 'triangle'] as const satisfies readonly PromptShape[],
   PROMPT_COLORS: ['red', 'blue', 'green', 'yellow'] as const satisfies readonly PromptColor[],
+  SWIPE_DIRECTIONS: ['up', 'down', 'left', 'right'] as const satisfies readonly SwipeDirection[],
 } as const;
