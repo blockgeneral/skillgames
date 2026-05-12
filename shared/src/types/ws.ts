@@ -77,6 +77,12 @@ export interface OpponentDisconnectedMessage {
   readonly matchId: MatchId;
 }
 
+export interface AuthOkMessage {
+  readonly type: 'AUTH_OK';
+  readonly playerId: PlayerId;
+  readonly displayName: string;
+}
+
 /** Discriminated union of all server-to-client messages */
 export type ServerMessage =
   | MatchFoundMessage
@@ -88,7 +94,8 @@ export type ServerMessage =
   | MatchResultMessage
   | ErrorMessage
   | MatchCancelledMessage
-  | OpponentDisconnectedMessage;
+  | OpponentDisconnectedMessage
+  | AuthOkMessage;
 
 // ─── Client → Server messages ───────────────────────────────────────────────
 
@@ -129,8 +136,14 @@ export interface RematchRequestMessage {
   readonly matchId: MatchId;
 }
 
+export interface AuthMessage {
+  readonly type: 'AUTH';
+  readonly initData: string;
+}
+
 /** Discriminated union of all client-to-server messages */
 export type ClientMessage =
+  | AuthMessage
   | JoinQueueMessage
   | LeaveQueueMessage
   | DepositConfirmedMessage

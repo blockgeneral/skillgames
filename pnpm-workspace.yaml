@@ -3,3 +3,5 @@ packages:
   - 'client'
   - 'server'
   - 'contracts'
+allowBuilds:
+  esbuild: false
