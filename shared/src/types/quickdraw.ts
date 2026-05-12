@@ -78,7 +78,6 @@ export interface QuickDrawMatchState {
 /** Game-tuning constants for Quick Draw */
 export const QUICK_DRAW_CONSTANTS = {
   ROUNDS_PER_MATCH: 3,
-  ROUNDS_TO_WIN: 2,
   PROMPTS_PER_ROUND: 8,
   FIRST_PROMPT_MIN_DELAY_MS: 1500,
   FIRST_PROMPT_MAX_DELAY_MS: 3000,

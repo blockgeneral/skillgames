@@ -125,22 +125,18 @@ export function determineMatchWinner(
   rounds: RoundResult[],
   playerAId: PlayerId,
   playerBId: PlayerId,
-): { winnerId: PlayerId | null; score: [number, number] } {
-  let aWins = 0;
-  let bWins = 0;
+): { winnerId: PlayerId | null; playerATotalMs: number; playerBTotalMs: number } {
+  let aTotalMs = 0;
+  let bTotalMs = 0;
 
   for (const round of rounds) {
-    if (round.winnerId === playerAId) aWins++;
-    else if (round.winnerId === playerBId) bWins++;
+    aTotalMs += round.playerATotalMs;
+    bTotalMs += round.playerBTotalMs;
   }
 
-  const score: [number, number] = [aWins, bWins];
+  let winnerId: PlayerId | null = null;
+  if (aTotalMs < bTotalMs) winnerId = playerAId;
+  else if (bTotalMs < aTotalMs) winnerId = playerBId;
 
-  if (aWins >= QUICK_DRAW_CONSTANTS.ROUNDS_TO_WIN) return { winnerId: playerAId, score };
-  if (bWins >= QUICK_DRAW_CONSTANTS.ROUNDS_TO_WIN) return { winnerId: playerBId, score };
-
-  if (aWins > bWins) return { winnerId: playerAId, score };
-  if (bWins > aWins) return { winnerId: playerBId, score };
-
-  return { winnerId: null, score };
+  return { winnerId, playerATotalMs: aTotalMs, playerBTotalMs: bTotalMs };
 }

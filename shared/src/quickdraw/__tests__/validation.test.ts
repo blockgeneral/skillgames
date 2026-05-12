@@ -303,56 +303,64 @@ describe('scoreRound', () => {
 // ─── determineMatchWinner ───────────────────────────────────────────────────
 
 describe('determineMatchWinner', () => {
-  function roundResult(winnerId: PlayerId | null, roundNumber: number): RoundResult {
+  function roundResult(aTotalMs: number, bTotalMs: number, roundNumber: number): RoundResult {
     return {
       roundNumber,
-      winnerId,
+      winnerId: aTotalMs < bTotalMs ? PLAYER_A : bTotalMs < aTotalMs ? PLAYER_B : null,
       playerAResults: [],
       playerBResults: [],
-      playerATotalMs: winnerId === PLAYER_A ? 2000 : 3000,
-      playerBTotalMs: winnerId === PLAYER_B ? 2000 : 3000,
+      playerATotalMs: aTotalMs,
+      playerBTotalMs: bTotalMs,
     };
   }
 
-  it('2-0 → winner is player with 2 wins', () => {
-    const rounds = [roundResult(PLAYER_A, 1), roundResult(PLAYER_A, 2)];
+  it('lower cumulative total wins across 3 rounds', () => {
+    const rounds = [
+      roundResult(2400, 2800, 1), // A wins round
+      roundResult(2600, 2500, 2), // B wins round
+      roundResult(2300, 2700, 3), // A wins round
+    ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
+    // A total: 7300, B total: 8000
     expect(result.winnerId).toBe(PLAYER_A);
-    expect(result.score).toEqual([2, 0]);
+    expect(result.playerATotalMs).toBe(7300);
+    expect(result.playerBTotalMs).toBe(8000);
   });
 
-  it('2-1 → winner is player with 2 wins', () => {
-    const rounds = [roundResult(PLAYER_A, 1), roundResult(PLAYER_B, 2), roundResult(PLAYER_A, 3)];
+  it('B wins by cumulative total despite A winning 2 rounds', () => {
+    const rounds = [
+      roundResult(2400, 2500, 1), // A wins round by 100ms
+      roundResult(2400, 2500, 2), // A wins round by 100ms
+      roundResult(4000, 2000, 3), // B wins round by 2000ms
+    ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
-    expect(result.winnerId).toBe(PLAYER_A);
-    expect(result.score).toEqual([2, 1]);
+    // A total: 8800, B total: 7000
+    expect(result.winnerId).toBe(PLAYER_B);
+    expect(result.playerATotalMs).toBe(8800);
+    expect(result.playerBTotalMs).toBe(7000);
   });
 
-  it('1-1 + draw → null (tie match)', () => {
-    const rounds = [roundResult(PLAYER_A, 1), roundResult(PLAYER_B, 2), roundResult(null, 3)];
+  it('equal cumulative totals → draw', () => {
+    const rounds = [
+      roundResult(2400, 2800, 1),
+      roundResult(2800, 2400, 2),
+      roundResult(2500, 2500, 3),
+    ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
     expect(result.winnerId).toBeNull();
-    expect(result.score).toEqual([1, 1]);
+    expect(result.playerATotalMs).toBe(7700);
+    expect(result.playerBTotalMs).toBe(7700);
   });
 
-  it('B wins 2-0', () => {
-    const rounds = [roundResult(PLAYER_B, 1), roundResult(PLAYER_B, 2)];
+  it('B wins all 3 rounds → B wins', () => {
+    const rounds = [
+      roundResult(3000, 2000, 1),
+      roundResult(3000, 2000, 2),
+      roundResult(3000, 2000, 3),
+    ];
     const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
     expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.score).toEqual([0, 2]);
-  });
-
-  it('B wins 2-1', () => {
-    const rounds = [roundResult(PLAYER_A, 1), roundResult(PLAYER_B, 2), roundResult(PLAYER_B, 3)];
-    const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
-    expect(result.winnerId).toBe(PLAYER_B);
-    expect(result.score).toEqual([1, 2]);
-  });
-
-  it('all 3 draws → null', () => {
-    const rounds = [roundResult(null, 1), roundResult(null, 2), roundResult(null, 3)];
-    const result = determineMatchWinner(rounds, PLAYER_A, PLAYER_B);
-    expect(result.winnerId).toBeNull();
-    expect(result.score).toEqual([0, 0]);
+    expect(result.playerATotalMs).toBe(9000);
+    expect(result.playerBTotalMs).toBe(6000);
   });
 });

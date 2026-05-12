@@ -196,10 +196,9 @@ export function useGame() {
     timerRef.current = setTimeout(() => {
       const latest = matchRef.current;
       if (!latest) return;
-      const [pWins, oWins] = latest.score;
       const allPlayed = latest.roundResults.length >= QUICK_DRAW_CONSTANTS.ROUNDS_PER_MATCH;
 
-      if (pWins >= QUICK_DRAW_CONSTANTS.ROUNDS_TO_WIN || oWins >= QUICK_DRAW_CONSTANTS.ROUNDS_TO_WIN || allPlayed) {
+      if (allPlayed) {
         setPhase({ kind: 'match_result' });
       } else {
         startRound(roundIndex + 1);

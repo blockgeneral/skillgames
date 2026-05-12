@@ -9,11 +9,13 @@ interface Props {
 }
 
 export function MatchResultScreen({ match, onPlayAgain, onMainMenu }: Props): JSX.Element {
-  const [you, opp] = match.score;
-  const won = you > opp;
-  const draw = you === opp;
+  // Winner determined by cumulative total time across all rounds
+  const totalPlayerMs = match.roundResults.reduce((sum, rr) => sum + rr.playerATotalMs, 0);
+  const totalOpponentMs = match.roundResults.reduce((sum, rr) => sum + rr.playerBTotalMs, 0);
+  const won = totalPlayerMs < totalOpponentMs;
+  const draw = totalPlayerMs === totalOpponentMs;
 
-  // Compute stats across all rounds
+  // Stats across all prompts
   const allPlayerResults = match.playerResults.flat();
   const hitResults = allPlayerResults.filter(r => r.hit && r.reactionMs !== null);
   const avgMs = hitResults.length > 0
@@ -30,12 +32,21 @@ export function MatchResultScreen({ match, onPlayAgain, onMainMenu }: Props): JS
         {draw ? 'DRAW' : won ? 'YOU WIN' : 'YOU LOSE'}
       </p>
 
-      {/* Score */}
-      <p className="text-4xl font-extrabold text-slate-200">
-        <span className="text-cyan-400">{you}</span>
-        <span className="text-slate-600 mx-3">-</span>
-        <span className="text-red-400">{opp}</span>
-      </p>
+      {/* Cumulative total time — the deciding stat */}
+      <div className="flex gap-8 text-center">
+        <div>
+          <p className="text-xs text-slate-500 uppercase">Your total</p>
+          <p className={`text-3xl font-mono ${won ? 'text-green-400' : draw ? 'text-yellow-400' : 'text-cyan-400'}`}>
+            {totalPlayerMs.toLocaleString()}ms
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 uppercase">Opponent</p>
+          <p className={`text-3xl font-mono ${!won && !draw ? 'text-green-400' : 'text-red-400'}`}>
+            {totalOpponentMs.toLocaleString()}ms
+          </p>
+        </div>
+      </div>
 
       {/* Stats */}
       <div className="flex gap-6 text-center">
