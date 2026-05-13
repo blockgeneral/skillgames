@@ -6,6 +6,7 @@ import { ConnectionManager } from './ws/ConnectionManager.js';
 import { MatchmakingQueue } from './matchmaking/MatchmakingQueue.js';
 import { DirectChallenge } from './matchmaking/DirectChallenge.js';
 import { MatchRegistry } from './match/MatchRegistry.js';
+import { GameSessionManager } from './game/GameSessionManager.js';
 import { registerWsRoute, clearGraceTimers } from './ws/wsRoute.js';
 import { startHeartbeat, stopHeartbeat } from './ws/heartbeat.js';
 import type { PlayerId } from '@skillgamez/shared';
@@ -19,6 +20,7 @@ export async function buildServer() {
   const queue = new MatchmakingQueue();
   const challenge = new DirectChallenge();
   const matchRegistry = new MatchRegistry();
+  const gameSessions = new GameSessionManager();
 
   await app.register(fastifyWebsocket);
 
@@ -26,11 +28,12 @@ export async function buildServer() {
     status: 'ok',
     uptime: process.uptime(),
     connections: manager.getActiveCount(),
+    activeSessions: gameSessions.getActiveCount(),
   }));
 
-  registerWsRoute(app, manager, queue, challenge, matchRegistry);
+  registerWsRoute(app, manager, queue, challenge, matchRegistry, gameSessions);
 
-  return { app, manager, queue, challenge, matchRegistry };
+  return { app, manager, queue, challenge, matchRegistry, gameSessions };
 }
 
 async function main() {
@@ -41,9 +44,7 @@ async function main() {
 
   startHeartbeat(manager, (pid) => {
     const conn = manager.getConnection(pid as PlayerId);
-    if (conn) {
-      try { conn.socket.close(4002, 'heartbeat_timeout'); } catch { /* ignore */ }
-    }
+    if (conn) { try { conn.socket.close(4002, 'heartbeat_timeout'); } catch { /* ignore */ } }
     manager.disconnect(pid as PlayerId);
   });
 
@@ -61,15 +62,10 @@ async function main() {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-
   await app.listen({ port: PORT, host: '0.0.0.0' });
 }
 
-// Only run main when executed directly (not imported by tests)
 const isDirectRun = process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js');
 if (isDirectRun) {
-  main().catch((err) => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-  });
+  main().catch((err) => { console.error('Failed to start server:', err); process.exit(1); });
 }
