@@ -2,11 +2,46 @@ import type { MatchId, PlayerId, PlayerInfo, Timestamp, WagerAmount } from './co
 
 // ─── Server → Client messages ───────────────────────────────────────────────
 
+export interface AuthOkMessage {
+  readonly type: 'AUTH_OK';
+  readonly playerId: PlayerId;
+  readonly displayName: string;
+}
+
+export interface QueueJoinedMessage {
+  readonly type: 'QUEUE_JOINED';
+  readonly wagerAmount: WagerAmount;
+  readonly position: number;
+}
+
+export interface QueueLeftMessage {
+  readonly type: 'QUEUE_LEFT';
+}
+
 export interface MatchFoundMessage {
   readonly type: 'MATCH_FOUND';
   readonly matchId: MatchId;
   readonly opponent: PlayerInfo;
   readonly wagerAmount: WagerAmount;
+}
+
+export interface ChallengeCreatedMessage {
+  readonly type: 'CHALLENGE_CREATED';
+  readonly challengeCode: string;
+  readonly wagerAmount: WagerAmount;
+}
+
+export interface ChallengeCancelledMessage {
+  readonly type: 'CHALLENGE_CANCELLED';
+}
+
+export interface ChallengeExpiredMessage {
+  readonly type: 'CHALLENGE_EXPIRED';
+}
+
+export interface ChallengeInvalidMessage {
+  readonly type: 'CHALLENGE_INVALID';
+  readonly reason: string;
 }
 
 export interface DepositStatusMessage {
@@ -19,7 +54,7 @@ export interface DepositStatusMessage {
 export interface MatchStartMessage {
   readonly type: 'MATCH_START';
   readonly matchId: MatchId;
-  readonly roundCount: 5;
+  readonly roundCount: number;
 }
 
 export interface RoundStartMessage {
@@ -77,15 +112,16 @@ export interface OpponentDisconnectedMessage {
   readonly matchId: MatchId;
 }
 
-export interface AuthOkMessage {
-  readonly type: 'AUTH_OK';
-  readonly playerId: PlayerId;
-  readonly displayName: string;
-}
-
 /** Discriminated union of all server-to-client messages */
 export type ServerMessage =
+  | AuthOkMessage
+  | QueueJoinedMessage
+  | QueueLeftMessage
   | MatchFoundMessage
+  | ChallengeCreatedMessage
+  | ChallengeCancelledMessage
+  | ChallengeExpiredMessage
+  | ChallengeInvalidMessage
   | DepositStatusMessage
   | MatchStartMessage
   | RoundStartMessage
@@ -94,10 +130,14 @@ export type ServerMessage =
   | MatchResultMessage
   | ErrorMessage
   | MatchCancelledMessage
-  | OpponentDisconnectedMessage
-  | AuthOkMessage;
+  | OpponentDisconnectedMessage;
 
 // ─── Client → Server messages ───────────────────────────────────────────────
+
+export interface AuthMessage {
+  readonly type: 'AUTH';
+  readonly initData: string;
+}
 
 export interface JoinQueueMessage {
   readonly type: 'JOIN_QUEUE';
@@ -106,6 +146,20 @@ export interface JoinQueueMessage {
 
 export interface LeaveQueueMessage {
   readonly type: 'LEAVE_QUEUE';
+}
+
+export interface CreateChallengeMessage {
+  readonly type: 'CREATE_CHALLENGE';
+  readonly wagerAmount: WagerAmount;
+}
+
+export interface JoinChallengeMessage {
+  readonly type: 'JOIN_CHALLENGE';
+  readonly challengeCode: string;
+}
+
+export interface CancelChallengeMessage {
+  readonly type: 'CANCEL_CHALLENGE';
 }
 
 export interface DepositConfirmedMessage {
@@ -136,16 +190,14 @@ export interface RematchRequestMessage {
   readonly matchId: MatchId;
 }
 
-export interface AuthMessage {
-  readonly type: 'AUTH';
-  readonly initData: string;
-}
-
 /** Discriminated union of all client-to-server messages */
 export type ClientMessage =
   | AuthMessage
   | JoinQueueMessage
   | LeaveQueueMessage
+  | CreateChallengeMessage
+  | JoinChallengeMessage
+  | CancelChallengeMessage
   | DepositConfirmedMessage
   | TapMessage
   | FalseStartMessage

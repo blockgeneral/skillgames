@@ -3,8 +3,12 @@ import Fastify from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
 import { connectRedis, disconnectRedis } from './redis/redisClient.js';
 import { ConnectionManager } from './ws/ConnectionManager.js';
+import { MatchmakingQueue } from './matchmaking/MatchmakingQueue.js';
+import { DirectChallenge } from './matchmaking/DirectChallenge.js';
+import { MatchRegistry } from './match/MatchRegistry.js';
 import { registerWsRoute, clearGraceTimers } from './ws/wsRoute.js';
 import { startHeartbeat, stopHeartbeat } from './ws/heartbeat.js';
+import type { PlayerId } from '@skillgamez/shared';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -12,6 +16,9 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 export async function buildServer() {
   const app = Fastify({ logger: true });
   const manager = new ConnectionManager();
+  const queue = new MatchmakingQueue();
+  const challenge = new DirectChallenge();
+  const matchRegistry = new MatchRegistry();
 
   await app.register(fastifyWebsocket);
 
@@ -21,9 +28,9 @@ export async function buildServer() {
     connections: manager.getActiveCount(),
   }));
 
-  registerWsRoute(app, manager);
+  registerWsRoute(app, manager, queue, challenge, matchRegistry);
 
-  return { app, manager };
+  return { app, manager, queue, challenge, matchRegistry };
 }
 
 async function main() {
@@ -32,12 +39,12 @@ async function main() {
   await connectRedis(REDIS_URL);
   app.log.info('Connected to Redis');
 
-  startHeartbeat(manager, (playerId) => {
-    const conn = manager.getConnection(playerId as import('@skillgamez/shared').PlayerId);
+  startHeartbeat(manager, (pid) => {
+    const conn = manager.getConnection(pid as PlayerId);
     if (conn) {
       try { conn.socket.close(4002, 'heartbeat_timeout'); } catch { /* ignore */ }
     }
-    manager.disconnect(playerId as import('@skillgamez/shared').PlayerId);
+    manager.disconnect(pid as PlayerId);
   });
 
   const shutdown = async () => {
@@ -58,7 +65,11 @@ async function main() {
   await app.listen({ port: PORT, host: '0.0.0.0' });
 }
 
-main().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+// Only run main when executed directly (not imported by tests)
+const isDirectRun = process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js');
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
