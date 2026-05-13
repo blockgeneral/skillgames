@@ -1,10 +1,9 @@
 import type { MatchState } from './types.js';
 import { PLAYER_ID } from './types.js';
-import type { WagerAmount } from '@skillgamez/shared';
 
 interface Props {
   match: MatchState;
-  onPlayAgain: (wagerAmount: WagerAmount) => void;
+  onPlayAgain: () => void;
   onMainMenu: () => void;
 }
 
@@ -86,7 +85,7 @@ export function MatchResultScreen({ match, onPlayAgain, onMainMenu }: Props): JS
       {/* Buttons */}
       <div className="w-full max-w-xs flex flex-col gap-3 mt-2">
         <button
-          onPointerDown={() => onPlayAgain(match.wagerAmount)}
+          onPointerDown={onPlayAgain}
           className="w-full py-4 rounded-xl bg-cyan-500 text-black text-xl font-extrabold tracking-wider active:bg-cyan-400 transition-colors"
         >
           PLAY AGAIN

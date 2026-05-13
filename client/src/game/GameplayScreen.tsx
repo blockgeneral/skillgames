@@ -13,6 +13,7 @@ interface Props {
   currentMissCount: number;
   onInput: (input: GameInput) => void;
   tapPosition?: { x: number; y: number };
+  opponentPrompt?: number;
 }
 
 const COLORS: Record<string, string> = {
@@ -40,7 +41,7 @@ const STATUS_COLORS: Record<PromptStatus, string> = {
 
 const ARROW_ROTATION: Record<SwipeDirection, number> = { right: 0, down: 90, left: 180, up: 270 };
 
-export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, results, currentMissCount, onInput, tapPosition }: Props): JSX.Element {
+export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, results, currentMissCount, onInput, tapPosition, opponentPrompt }: Props): JSX.Element {
   const pointerStartRef = useRef<{ nx: number; ny: number; cx: number; cy: number } | null>(null);
 
   const handlePointerDown = useCallback(
@@ -122,9 +123,12 @@ export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, re
         {runningTotalMs.toLocaleString()}ms
       </div>
 
-      {/* Prompt index */}
+      {/* Prompt index + opponent progress */}
       <div className="absolute top-4 left-4 text-sm font-mono text-slate-600 z-10">
         {promptIndex + 1}/{QUICK_DRAW_CONSTANTS.PROMPTS_PER_ROUND}
+        {opponentPrompt !== undefined && (
+          <span className="ml-2 text-xs text-slate-700">opp: {opponentPrompt}/{QUICK_DRAW_CONSTANTS.PROMPTS_PER_ROUND}</span>
+        )}
       </div>
 
       {/* Shape or Arrow */}
