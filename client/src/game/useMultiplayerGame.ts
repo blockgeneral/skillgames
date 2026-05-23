@@ -32,6 +32,11 @@ export function useMultiplayerGame(
   const promptAppearedAtRef = useRef(0);
   // Track which player slot I am (for normalizing A/B results)
   const iAmPlayerARef = useRef<boolean | null>(null);
+  // Ref to read playerResults without adding to effect deps
+  const playerResultsRef = useRef(playerResults);
+  playerResultsRef.current = playerResults;
+  // Prevent re-processing the same WebSocket message
+  const lastProcessedRef = useRef<unknown>(null);
 
   // Cleanup
   useEffect(() => {
@@ -41,7 +46,8 @@ export function useMultiplayerGame(
   // Process server messages
   useEffect(() => {
     const msg = ws.lastMessage;
-    if (!msg) return;
+    if (!msg || msg === lastProcessedRef.current) return;
+    lastProcessedRef.current = msg;
 
     switch (msg.type) {
       case 'WAITING_FOR_OPPONENT_READY':
@@ -142,8 +148,7 @@ export function useMultiplayerGame(
         const ri = msg.roundNumber - 1;
         // Determine if I am playerA
         if (iAmPlayerARef.current === null) {
-          // First round result — figure out which slot I am by checking playerAResults
-          const myResultsCount = playerResults[ri]?.length ?? 0;
+          const myResultsCount = playerResultsRef.current[ri]?.length ?? 0;
           iAmPlayerARef.current = msg.playerAResults.length === myResultsCount;
         }
         const isA = iAmPlayerARef.current;
@@ -156,10 +161,12 @@ export function useMultiplayerGame(
           winnerId: msg.winnerId === myPlayerId ? PLAYER_ID : msg.winnerId === null ? null : OPPONENT_ID,
         };
         setRoundResults(prev => [...prev, normalized]);
-        const newScore: [number, number] = [...score];
-        if (normalized.winnerId === PLAYER_ID) newScore[0]++;
-        else if (normalized.winnerId === OPPONENT_ID) newScore[1]++;
-        setScore(newScore);
+        setScore(prev => {
+          const newScore: [number, number] = [...prev];
+          if (normalized.winnerId === PLAYER_ID) newScore[0]++;
+          else if (normalized.winnerId === OPPONENT_ID) newScore[1]++;
+          return newScore;
+        });
         setPhase({ kind: 'round_result', roundIndex: ri });
         break;
       }
@@ -167,16 +174,14 @@ export function useMultiplayerGame(
       case 'MATCH_RESULT': {
         setMatchComplete(true);
         setForfeit(msg.forfeit);
-        // Round results already accumulated from ROUND_RESULT messages
         setPhase({ kind: 'match_result' });
         break;
       }
 
       case 'OPPONENT_DISCONNECTED':
-        // Show notification but don't stop the game yet — server handles forfeit
         break;
     }
-  }, [ws.lastMessage, myPlayerId, score, playerResults]);
+  }, [ws.lastMessage, myPlayerId]);
 
   // Send PLAYER_READY on mount
   const sendReady = useCallback(() => {
@@ -210,7 +215,8 @@ export function useMultiplayerGame(
         type: 'SWIPE', matchId,
         roundNumber: ri + 1, promptNumber: pi + 1,
         startX: input.normalizedX, startY: input.normalizedY,
-        endX: input.normalizedX, endY: input.normalizedY,
+        endX: input.endNormalizedX ?? input.normalizedX,
+        endY: input.endNormalizedY ?? input.normalizedY,
         timestamp: input.timestamp as Timestamp, isTrusted: input.isTrusted,
       });
     }

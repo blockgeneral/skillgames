@@ -74,6 +74,10 @@ export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, re
       pointerStartRef.current = null;
       const timestamp = performance.now();
 
+      const rect = e.currentTarget.getBoundingClientRect();
+      const endNx = (e.clientX - rect.left) / rect.width;
+      const endNy = (e.clientY - rect.top) / rect.height;
+
       const dxPx = e.clientX - start.cx;
       const dyPx = e.clientY - start.cy;
       const distPx = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
@@ -85,7 +89,7 @@ export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, re
         } else {
           direction = dyPx > 0 ? 'down' : 'up';
         }
-        onInput({ normalizedX: start.nx, normalizedY: start.ny, timestamp, isTrusted: e.isTrusted, gestureType: 'swipe', swipeDirection: direction });
+        onInput({ normalizedX: start.nx, normalizedY: start.ny, endNormalizedX: endNx, endNormalizedY: endNy, timestamp, isTrusted: e.isTrusted, gestureType: 'swipe', swipeDirection: direction });
       } else {
         onInput({ normalizedX: start.nx, normalizedY: start.ny, timestamp, isTrusted: e.isTrusted, gestureType: 'tap' });
       }

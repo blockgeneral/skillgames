@@ -18,6 +18,8 @@ export type GamePhase =
 export interface GameInput {
   normalizedX: number;
   normalizedY: number;
+  endNormalizedX?: number;
+  endNormalizedY?: number;
   timestamp: number;
   isTrusted: boolean;
   gestureType: 'tap' | 'swipe' | 'false_start';
