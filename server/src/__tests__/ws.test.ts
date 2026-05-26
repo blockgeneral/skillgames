@@ -47,7 +47,8 @@ async function authWs(id: number, name: string): Promise<{ ws: WebSocket; msg: R
   const ws = connectWs();
   await waitOpen(ws);
   ws.send(JSON.stringify({ type: 'AUTH', initData: makeInitData(id, name) }));
-  const msg = await waitMsg(ws);
+  const msg = await waitMsg(ws); // AUTH_OK
+  await waitMsg(ws); // BALANCE_UPDATE (initial grant)
   return { ws, msg };
 }
 
@@ -58,7 +59,7 @@ beforeAll(async () => {
 
   // Clean all test state from Redis
   const redis = getRedisClient();
-  for (const pattern of ['queue:*', 'match:*', 'player_match:*', 'session:*', 'challenge:*', 'player_challenge:*']) {
+  for (const pattern of ['queue:*', 'match:*', 'player_match:*', 'session:*', 'challenge:*', 'player_challenge:*', 'balance:*', 'transactions:*']) {
     const keys = await redis.keys(pattern);
     if (keys.length) await redis.del(...keys);
   }
@@ -80,7 +81,14 @@ afterEach(async () => {
     }
   }
   openSockets.length = 0;
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise(r => setTimeout(r, 100));
+
+  // Clean Redis state between tests
+  const redis = getRedisClient();
+  for (const pattern of ['queue:*', 'match:*', 'player_match:*', 'session:*', 'balance:*', 'transactions:*']) {
+    const keys = await redis.keys(pattern);
+    if (keys.length) await redis.del(...keys);
+  }
 });
 
 afterAll(async () => {

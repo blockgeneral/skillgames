@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import type { PlayerId, MatchId, Timestamp } from '@skillgamez/shared';
+import type { PlayerId, MatchId, Timestamp, WagerAmount } from '@skillgamez/shared';
 import type { ServerMessage } from '@skillgamez/shared';
 import type { TelegramUser } from '../auth/validateInitData.js';
 
@@ -13,6 +13,8 @@ export interface PlayerConnection {
   lastHeartbeat: Timestamp;
   state: ConnectionState;
   matchId: MatchId | null;
+  lastMatchOpponent: PlayerId | null;
+  lastMatchWager: WagerAmount | null;
 }
 
 export class ConnectionManager {
@@ -38,6 +40,8 @@ export class ConnectionManager {
       lastHeartbeat: now,
       state: 'idle',
       matchId: null,
+      lastMatchOpponent: null,
+      lastMatchWager: null,
     });
   }
 

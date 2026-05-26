@@ -7,3 +7,4 @@ export * from './quickdraw/generateRound.js';
 export * from './quickdraw/validation.js';
 export * from './quickdraw/difficulty.js';
 export * from './quickdraw/simulation.js';
+export * from './utils/coinConversion.js';

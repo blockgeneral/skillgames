@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { PlayerId, PlayerInfo, TonAddress, SwipeDirection } from '@skillgamez/shared';
+import type { PlayerId, PlayerInfo, TonAddress, SwipeDirection, MatchId } from '@skillgamez/shared';
 import type { ClientMessage } from '@skillgamez/shared';
-import { RECONNECT_GRACE_MS, VALID_WAGER_AMOUNTS } from '@skillgamez/shared';
+import { RECONNECT_GRACE_MS, VALID_WAGER_AMOUNTS, tonToCoins } from '@skillgamez/shared';
 import type { WagerAmount } from '@skillgamez/shared';
 import { validateInitData } from '../auth/validateInitData.js';
 import { ConnectionManager } from './ConnectionManager.js';
@@ -10,6 +10,8 @@ import { MatchmakingQueue } from '../matchmaking/MatchmakingQueue.js';
 import { DirectChallenge } from '../matchmaking/DirectChallenge.js';
 import { MatchRegistry } from '../match/MatchRegistry.js';
 import { GameSessionManager } from '../game/GameSessionManager.js';
+import { CoinBalanceManager } from '../wallet/CoinBalance.js';
+import { RematchHandler } from '../matchmaking/RematchHandler.js';
 import { setSession, removeSession } from '../redis/sessionStore.js';
 
 const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -21,6 +23,8 @@ export function registerWsRoute(
   challenge: DirectChallenge,
   matchRegistry: MatchRegistry,
   gameSessions: GameSessionManager,
+  coinBalance: CoinBalanceManager,
+  rematch: RematchHandler,
 ): void {
   app.get('/ws', { websocket: true }, (socket: WebSocket) => {
     let playerId: PlayerId | null = null;
@@ -56,6 +60,10 @@ export function registerWsRoute(
         await setSession(playerId, { userId: user.id, displayName: user.firstName, state: 'idle' });
         socket.send(JSON.stringify({ type: 'AUTH_OK', playerId, displayName: user.firstName }));
         socket.on('pong', () => { if (playerId) manager.updateHeartbeat(playerId); });
+
+        // Send initial balance
+        const balance = await coinBalance.getBalance(playerId);
+        socket.send(JSON.stringify({ type: 'BALANCE_UPDATE', balance }));
         return;
       }
 
@@ -68,12 +76,21 @@ export function registerWsRoute(
           const existing = await matchRegistry.getByPlayer(playerId!);
           if (existing) { sendError(socket, 'already_in_match', 'Already in a match'); break; }
 
+          // Check balance
+          const wagerCoins = tonToCoins(clientMsg.wagerAmount);
+          const canPay = await coinBalance.canAfford(playerId!, wagerCoins);
+          if (!canPay) {
+            const bal = await coinBalance.getBalance(playerId!);
+            sendError(socket, 'insufficient_balance', `Need ${wagerCoins} Coins but you have ${bal}`);
+            break;
+          }
+
           const conn = manager.getConnection(playerId!);
           if (conn) conn.state = 'in_queue';
 
           const result = await queue.join(playerId!, clientMsg.wagerAmount);
           if (result) {
-            await handleMatchFound(result.matchId, result.playerA, result.playerB, result.wagerAmount, manager, matchRegistry, gameSessions);
+            await handleMatchFound(result.matchId, result.playerA, result.playerB, result.wagerAmount, manager, matchRegistry, gameSessions, coinBalance);
           } else {
             const pos = await queue.getPosition(playerId!, clientMsg.wagerAmount);
             socket.send(JSON.stringify({ type: 'QUEUE_JOINED', wagerAmount: clientMsg.wagerAmount, position: pos }));
@@ -91,15 +108,35 @@ export function registerWsRoute(
 
         case 'CREATE_CHALLENGE': {
           if (!isValidWager(clientMsg.wagerAmount)) { sendError(socket, 'invalid_wager', 'Invalid wager amount'); break; }
+
+          const wagerCoins = tonToCoins(clientMsg.wagerAmount);
+          const canPay = await coinBalance.canAfford(playerId!, wagerCoins);
+          if (!canPay) {
+            const bal = await coinBalance.getBalance(playerId!);
+            sendError(socket, 'insufficient_balance', `Need ${wagerCoins} Coins but you have ${bal}`);
+            break;
+          }
+
           const code = challenge.create(playerId!, clientMsg.wagerAmount);
           socket.send(JSON.stringify({ type: 'CHALLENGE_CREATED', challengeCode: code, wagerAmount: clientMsg.wagerAmount }));
           break;
         }
 
         case 'JOIN_CHALLENGE': {
+          const pendingChallenge = await challenge.getPending(clientMsg.challengeCode);
+          if (pendingChallenge) {
+            const wagerCoins = tonToCoins(pendingChallenge.wagerAmount);
+            const canPay = await coinBalance.canAfford(playerId!, wagerCoins);
+            if (!canPay) {
+              const bal = await coinBalance.getBalance(playerId!);
+              sendError(socket, 'insufficient_balance', `Need ${wagerCoins} Coins but you have ${bal}`);
+              break;
+            }
+          }
+
           const result = await challenge.join(playerId!, clientMsg.challengeCode);
           if (!result) { socket.send(JSON.stringify({ type: 'CHALLENGE_INVALID', reason: 'Challenge not found or expired' })); break; }
-          await handleMatchFound(result.matchId, result.playerA, result.playerB, result.wagerAmount, manager, matchRegistry, gameSessions);
+          await handleMatchFound(result.matchId, result.playerA, result.playerB, result.wagerAmount, manager, matchRegistry, gameSessions, coinBalance);
           break;
         }
 
@@ -147,11 +184,10 @@ export function registerWsRoute(
         }
 
         case 'FALSE_START': {
-          // Treated as a tap during delay (the session handles it as false start)
           gameSessions.handleInput(playerId!, {
             type: 'tap',
             roundNumber: clientMsg.roundNumber,
-            promptNumber: 0, // Will be mapped to current prompt by session
+            promptNumber: 0,
             x: 0, y: 0,
             timestamp: clientMsg.timestamp,
             isTrusted: true,
@@ -159,8 +195,20 @@ export function registerWsRoute(
           break;
         }
 
+        case 'REMATCH_REQUEST': {
+          await handleRematchRequest(playerId!, clientMsg.matchId, manager, matchRegistry, gameSessions, coinBalance, rematch);
+          break;
+        }
+
+        case 'REMATCH_DECLINE': {
+          const requesterId = rematch.decline(clientMsg.matchId, playerId!);
+          if (requesterId) {
+            manager.send(requesterId, { type: 'REMATCH_DECLINED', reason: 'Opponent declined' });
+          }
+          break;
+        }
+
         case 'DEPOSIT_CONFIRMED':
-        case 'REMATCH_REQUEST':
           app.log.info(`[WS] ${playerId} sent ${clientMsg.type}`);
           break;
 
@@ -172,21 +220,38 @@ export function registerWsRoute(
     socket.on('close', async () => {
       if (!playerId) return;
       const conn = manager.getConnection(playerId);
+      // If connection was replaced by a new socket (duplicate session), skip cleanup
+      if (conn && conn.socket !== socket) return;
       const wasInMatch = conn?.state === 'in_match';
       const wasInQueue = conn?.state === 'in_queue';
 
       manager.disconnect(playerId);
       if (wasInQueue) await queue.leave(playerId);
       await challenge.cancel(playerId);
+      rematch.cancelForPlayer(playerId);
 
       if (wasInMatch && conn?.matchId) {
         gameSessions.handleDisconnect(playerId);
         const pid = playerId;
+        const mid = conn.matchId as MatchId;
         const timer = setTimeout(async () => {
           graceTimers.delete(pid);
+
+          // Forfeit — credit opponent
+          const match = await matchRegistry.get(mid);
+          if (match && match.status !== 'completed' && match.status !== 'cancelled') {
+            const winnerId = pid === match.playerA ? match.playerB : match.playerA;
+            const wagerCoins = tonToCoins(match.wagerAmount);
+            try {
+              await coinBalance.credit(winnerId, wagerCoins * 2, 'wager_win', mid);
+              const winnerBal = await coinBalance.getBalance(winnerId);
+              manager.send(winnerId, { type: 'BALANCE_UPDATE', balance: winnerBal });
+            } catch { /* winner may have disconnected too */ }
+          }
+
           gameSessions.handleForfeit(pid);
           await removeSession(pid);
-          await matchRegistry.updateStatus(conn!.matchId!, 'cancelled');
+          await matchRegistry.updateStatus(mid, 'cancelled');
         }, RECONNECT_GRACE_MS);
         graceTimers.set(playerId, timer);
       } else {
@@ -201,15 +266,48 @@ export function registerWsRoute(
 }
 
 async function handleMatchFound(
-  matchId: import('@skillgamez/shared').MatchId,
+  matchId: MatchId,
   playerA: PlayerId, playerB: PlayerId, wagerAmount: WagerAmount,
   manager: ConnectionManager, matchRegistry: MatchRegistry, gameSessions: GameSessionManager,
+  coinBalance: CoinBalanceManager,
 ): Promise<void> {
+  const wagerCoins = tonToCoins(wagerAmount);
+
+  // Debit both players atomically
+  let balA: number;
+  let balB: number;
+  try {
+    balA = await coinBalance.debit(playerA, wagerCoins, 'wager_debit', matchId);
+  } catch {
+    // Player A can't afford — cancel match, notify both
+    manager.send(playerA, { type: 'ERROR', code: 'insufficient_balance', message: 'Cannot afford wager' });
+    manager.send(playerB, { type: 'ERROR', code: 'match_cancelled', message: 'Opponent has insufficient balance' });
+    await matchRegistry.remove(matchId);
+    return;
+  }
+  try {
+    balB = await coinBalance.debit(playerB, wagerCoins, 'wager_debit', matchId);
+  } catch {
+    // Player B can't afford — refund A, cancel match
+    await coinBalance.credit(playerA, wagerCoins, 'wager_refund', matchId);
+    balA = await coinBalance.getBalance(playerA);
+    manager.send(playerA, { type: 'BALANCE_UPDATE', balance: balA });
+    manager.send(playerA, { type: 'ERROR', code: 'match_cancelled', message: 'Opponent has insufficient balance' });
+    manager.send(playerB, { type: 'ERROR', code: 'insufficient_balance', message: 'Cannot afford wager' });
+    await matchRegistry.remove(matchId);
+    return;
+  }
+
   const match = await matchRegistry.create(matchId, playerA, playerB, wagerAmount);
 
   for (const pid of [playerA, playerB]) {
     const conn = manager.getConnection(pid);
-    if (conn) { conn.state = 'in_match'; conn.matchId = matchId; }
+    if (conn) {
+      conn.state = 'in_match';
+      conn.matchId = matchId;
+      conn.lastMatchOpponent = pid === playerA ? playerB : playerA;
+      conn.lastMatchWager = wagerAmount;
+    }
   }
 
   const connA = manager.getConnection(playerA);
@@ -217,11 +315,131 @@ async function handleMatchFound(
   const infoA: PlayerInfo = { id: playerA, displayName: connA?.user.firstName ?? 'Player', walletAddress: '' as TonAddress };
   const infoB: PlayerInfo = { id: playerB, displayName: connB?.user.firstName ?? 'Player', walletAddress: '' as TonAddress };
 
-  manager.send(playerA, { type: 'MATCH_FOUND', matchId, opponent: infoB, wagerAmount });
-  manager.send(playerB, { type: 'MATCH_FOUND', matchId, opponent: infoA, wagerAmount });
+  manager.send(playerA, { type: 'MATCH_FOUND', matchId, opponent: infoB, wagerAmount, yourBalance: balA });
+  manager.send(playerB, { type: 'MATCH_FOUND', matchId, opponent: infoA, wagerAmount, yourBalance: balB });
 
-  // Create game session
-  gameSessions.createSession(match, (pid, msg) => manager.send(pid, msg));
+  // Create game session with onComplete callback that credits winner
+  gameSessions.createSession(match, (pid, msg) => {
+    if (msg.type === 'MATCH_RESULT' && !msg.forfeit) {
+      // Credit winner asynchronously
+      void (async () => {
+        const winnerId = msg.winnerId;
+        if (winnerId) {
+          const loserId = winnerId === playerA ? playerB : playerA;
+          await coinBalance.credit(winnerId, wagerCoins * 2, 'wager_win', matchId);
+          const winBal = await coinBalance.getBalance(winnerId);
+          const loseBal = await coinBalance.getBalance(loserId);
+          // Send enriched MATCH_RESULT with balance info
+          manager.send(winnerId, { ...msg, yourNewBalance: winBal, coinsWon: wagerCoins });
+          manager.send(loserId, { ...msg, yourNewBalance: loseBal, coinsWon: -wagerCoins });
+          manager.send(winnerId, { type: 'BALANCE_UPDATE', balance: winBal });
+          manager.send(loserId, { type: 'BALANCE_UPDATE', balance: loseBal });
+        } else {
+          // Draw — refund both
+          await coinBalance.credit(playerA, wagerCoins, 'wager_refund', matchId);
+          await coinBalance.credit(playerB, wagerCoins, 'wager_refund', matchId);
+          const balANew = await coinBalance.getBalance(playerA);
+          const balBNew = await coinBalance.getBalance(playerB);
+          manager.send(playerA, { ...msg, yourNewBalance: balANew, coinsWon: 0 });
+          manager.send(playerB, { ...msg, yourNewBalance: balBNew, coinsWon: 0 });
+          manager.send(playerA, { type: 'BALANCE_UPDATE', balance: balANew });
+          manager.send(playerB, { type: 'BALANCE_UPDATE', balance: balBNew });
+        }
+        await matchRegistry.updateStatus(matchId, 'completed');
+        // Clean up player→match mappings so they can rematch
+        await matchRegistry.remove(matchId);
+      })();
+      return; // Don't send the raw MATCH_RESULT — we send enriched versions above
+    }
+    manager.send(pid, msg);
+  });
+}
+
+async function handleRematchRequest(
+  playerId: PlayerId,
+  matchId: MatchId,
+  manager: ConnectionManager,
+  matchRegistry: MatchRegistry,
+  gameSessions: GameSessionManager,
+  coinBalance: CoinBalanceManager,
+  rematchHandler: RematchHandler,
+): Promise<void> {
+  // Look up original match info from the pending rematch or connection state
+  const pending = rematchHandler.getPending(matchId);
+
+  // We need to know the opponent and wager amount. If there's a pending rematch,
+  // we can get it from there. Otherwise, we need to figure out the opponent from
+  // the original match context. Store this in the connection's metadata.
+  const conn = manager.getConnection(playerId);
+  if (!conn) return;
+
+  // Get opponent and wager from existing pending or from connection lastMatch info
+  let opponentId: PlayerId;
+  let wagerAmount: WagerAmount;
+
+  if (pending) {
+    // Other player already requested — check if this player is the opponent
+    opponentId = pending.requesterId;
+    wagerAmount = pending.wagerAmount;
+  } else if (conn.lastMatchOpponent && conn.lastMatchWager) {
+    opponentId = conn.lastMatchOpponent;
+    wagerAmount = conn.lastMatchWager;
+  } else {
+    sendError(conn.socket, 'rematch_failed', 'No match to rematch');
+    return;
+  }
+
+  // Check balance
+  const wagerCoins = tonToCoins(wagerAmount);
+  const canPay = await coinBalance.canAfford(playerId, wagerCoins);
+  if (!canPay) {
+    sendError(conn.socket, 'insufficient_balance', 'Cannot afford rematch wager');
+    return;
+  }
+
+  const opponentConn = manager.getConnection(opponentId);
+  if (!opponentConn) {
+    manager.send(playerId, { type: 'REMATCH_DECLINED', reason: 'Opponent left' });
+    return;
+  }
+
+  const result = rematchHandler.request(
+    matchId,
+    playerId,
+    opponentId,
+    wagerAmount,
+    () => {
+      // Timeout callback
+      manager.send(playerId, { type: 'REMATCH_DECLINED', reason: 'Opponent did not respond' });
+    },
+  );
+
+  if (result === 'created') {
+    // Notify opponent that a rematch was offered
+    manager.send(opponentId, {
+      type: 'REMATCH_OFFERED',
+      matchId,
+      opponentName: conn.user.firstName,
+      wagerAmount,
+    });
+  } else if (result === 'accepted') {
+    // Both accepted — check opponent can still afford
+    const opCanPay = await coinBalance.canAfford(opponentId, wagerCoins);
+    if (!opCanPay) {
+      manager.send(playerId, { type: 'REMATCH_DECLINED', reason: 'Opponent has insufficient balance' });
+      manager.send(opponentId, { type: 'REMATCH_DECLINED', reason: 'Insufficient balance for rematch' });
+      return;
+    }
+
+    // Create new match
+    const crypto = await import('node:crypto');
+    const newMatchId = crypto.randomUUID() as MatchId;
+
+    manager.send(playerId, { type: 'REMATCH_ACCEPTED', newMatchId });
+    manager.send(opponentId, { type: 'REMATCH_ACCEPTED', newMatchId });
+
+    await handleMatchFound(newMatchId, playerId, opponentId, wagerAmount, manager, matchRegistry, gameSessions, coinBalance);
+  }
 }
 
 function isValidWager(amount: unknown): amount is WagerAmount {

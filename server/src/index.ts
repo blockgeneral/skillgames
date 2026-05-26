@@ -7,6 +7,8 @@ import { MatchmakingQueue } from './matchmaking/MatchmakingQueue.js';
 import { DirectChallenge } from './matchmaking/DirectChallenge.js';
 import { MatchRegistry } from './match/MatchRegistry.js';
 import { GameSessionManager } from './game/GameSessionManager.js';
+import { CoinBalanceManager } from './wallet/CoinBalance.js';
+import { RematchHandler } from './matchmaking/RematchHandler.js';
 import { registerWsRoute, clearGraceTimers } from './ws/wsRoute.js';
 import { startHeartbeat, stopHeartbeat } from './ws/heartbeat.js';
 import type { PlayerId } from '@skillgamez/shared';
@@ -21,6 +23,8 @@ export async function buildServer() {
   const challenge = new DirectChallenge();
   const matchRegistry = new MatchRegistry();
   const gameSessions = new GameSessionManager();
+  const coinBalance = new CoinBalanceManager();
+  const rematch = new RematchHandler();
 
   await app.register(fastifyWebsocket);
 
@@ -31,9 +35,9 @@ export async function buildServer() {
     activeSessions: gameSessions.getActiveCount(),
   }));
 
-  registerWsRoute(app, manager, queue, challenge, matchRegistry, gameSessions);
+  registerWsRoute(app, manager, queue, challenge, matchRegistry, gameSessions, coinBalance, rematch);
 
-  return { app, manager, queue, challenge, matchRegistry, gameSessions };
+  return { app, manager, queue, challenge, matchRegistry, gameSessions, coinBalance, rematch };
 }
 
 async function main() {

@@ -101,6 +101,13 @@ export function App(): JSX.Element {
     setScreen('start');
   }, [ws, practice]);
 
+  const handleRematchAccepted = useCallback((_newMatchId: MatchId) => {
+    // The server already created the new match and debited balances.
+    // The MATCH_FOUND message that follows will update matchInfo.
+    setReadySent(false);
+    setScreen('ready');
+  }, []);
+
   const handlePlayAgain = useCallback(() => {
     setMatchInfo(null);
     setScreen('lobby');
@@ -140,7 +147,7 @@ export function App(): JSX.Element {
       )}
 
       {screen === 'multiplayer' && (
-        <MultiplayerGame mp={mp} onPlayAgain={handlePlayAgain} onMainMenu={handleMainMenu} />
+        <MultiplayerGame mp={mp} onPlayAgain={handlePlayAgain} onMainMenu={handleMainMenu} onRematchAccepted={handleRematchAccepted} />
       )}
 
       {screen === 'practice' && (
@@ -152,13 +159,22 @@ export function App(): JSX.Element {
 
 // ─── Multiplayer game renderer ────────────────────────────────────────────
 
-function MultiplayerGame({ mp, onPlayAgain, onMainMenu }: {
+function MultiplayerGame({ mp, onPlayAgain, onMainMenu, onRematchAccepted }: {
   mp: ReturnType<typeof useMultiplayerGame>;
   onPlayAgain: () => void;
   onMainMenu: () => void;
+  onRematchAccepted: (newMatchId: import('@skillgamez/shared').MatchId) => void;
 }): JSX.Element | null {
   const { phase, match, activePrompt, currentRound, currentPrompt, runningTotalMs: _rt,
-    currentMissCount, opponentPrompt, handleInput } = mp;
+    currentMissCount, opponentPrompt, handleInput,
+    coinsWon, newBalance, rematchState, rematchNewMatchId, requestRematch, declineRematch } = mp;
+
+  // Handle rematch acceptance — transition to new match
+  useEffect(() => {
+    if (rematchNewMatchId) {
+      onRematchAccepted(rematchNewMatchId);
+    }
+  }, [rematchNewMatchId, onRematchAccepted]);
 
   switch (phase.kind) {
     case 'countdown':
@@ -193,7 +209,18 @@ function MultiplayerGame({ mp, onPlayAgain, onMainMenu }: {
     }
     case 'match_result': {
       if (!match) return null;
-      return <MatchResultScreen match={match} onPlayAgain={() => onPlayAgain()} onMainMenu={onMainMenu} />;
+      return (
+        <MatchResultScreen
+          match={match}
+          coinsWon={coinsWon}
+          newBalance={newBalance}
+          rematchState={rematchState}
+          onRematch={requestRematch}
+          onDeclineRematch={declineRematch}
+          onPlayAgain={() => onPlayAgain()}
+          onMainMenu={onMainMenu}
+        />
+      );
     }
     default:
       return <div className="flex items-center justify-center h-full"><p className="text-slate-500">Loading...</p></div>;
@@ -245,7 +272,18 @@ function PracticeGame({ practice, onTutorialComplete, onPlayAgain, onMainMenu }:
     }
     case 'match_result': {
       if (!match) return null;
-      return <MatchResultScreen match={match} onPlayAgain={() => onPlayAgain()} onMainMenu={onMainMenu} />;
+      return (
+        <MatchResultScreen
+          match={match}
+          coinsWon={0}
+          newBalance={0}
+          rematchState="idle"
+          onRematch={() => {}}
+          onDeclineRematch={() => {}}
+          onPlayAgain={() => onPlayAgain()}
+          onMainMenu={onMainMenu}
+        />
+      );
     }
     default:
       return null;

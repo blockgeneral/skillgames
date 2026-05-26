@@ -27,6 +27,10 @@ export function useMultiplayerGame(
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
   const [matchComplete, setMatchComplete] = useState(false);
   const [forfeit, setForfeit] = useState(false);
+  const [coinsWon, setCoinsWon] = useState(0);
+  const [newBalance, setNewBalance] = useState(0);
+  const [rematchState, setRematchState] = useState<'idle' | 'requesting' | 'offered' | 'declined'>('idle');
+  const [rematchNewMatchId, setRematchNewMatchId] = useState<MatchId | null>(null);
 
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const promptAppearedAtRef = useRef(0);
@@ -174,9 +178,23 @@ export function useMultiplayerGame(
       case 'MATCH_RESULT': {
         setMatchComplete(true);
         setForfeit(msg.forfeit);
+        setCoinsWon(msg.coinsWon);
+        setNewBalance(msg.yourNewBalance);
         setPhase({ kind: 'match_result' });
         break;
       }
+
+      case 'REMATCH_OFFERED':
+        setRematchState('offered');
+        break;
+
+      case 'REMATCH_ACCEPTED':
+        setRematchNewMatchId(msg.newMatchId);
+        break;
+
+      case 'REMATCH_DECLINED':
+        setRematchState('declined');
+        break;
 
       case 'OPPONENT_DISCONNECTED':
         break;
@@ -186,6 +204,16 @@ export function useMultiplayerGame(
   // Send PLAYER_READY on mount
   const sendReady = useCallback(() => {
     ws.send({ type: 'PLAYER_READY', matchId });
+  }, [ws, matchId]);
+
+  const requestRematch = useCallback(() => {
+    ws.send({ type: 'REMATCH_REQUEST', matchId });
+    setRematchState('requesting');
+  }, [ws, matchId]);
+
+  const declineRematch = useCallback(() => {
+    ws.send({ type: 'REMATCH_DECLINE', matchId });
+    setRematchState('idle');
   }, [ws, matchId]);
 
   // Handle game input (tap/swipe/false_start)
@@ -245,6 +273,12 @@ export function useMultiplayerGame(
     handleInput,
     sendReady,
     forfeit,
+    coinsWon,
+    newBalance,
+    rematchState,
+    rematchNewMatchId,
+    requestRematch,
+    declineRematch,
   };
 }
 

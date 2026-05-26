@@ -218,6 +218,7 @@ export class QuickDrawSession {
     this.sendBoth({
       type: 'MATCH_RESULT', matchId: this.matchId, winnerId,
       playerATotalMs: 0, playerBTotalMs: 0, roundResults: this.allRoundResults, forfeit: true,
+      yourNewBalance: 0, coinsWon: 0, // enriched by wsRoute for forfeit case
     });
     this.onComplete(this.matchId);
   }
@@ -377,6 +378,7 @@ export class QuickDrawSession {
       winnerId: matchResult.winnerId,
       playerATotalMs: matchResult.playerATotalMs, playerBTotalMs: matchResult.playerBTotalMs,
       roundResults: this.allRoundResults, forfeit: false,
+      yourNewBalance: 0, coinsWon: 0, // enriched by wsRoute send callback
     });
     this.onComplete(this.matchId);
   }

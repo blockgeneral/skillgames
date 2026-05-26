@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WagerAmount, MatchId, PlayerInfo } from '@skillgamez/shared';
-import { VALID_WAGER_AMOUNTS } from '@skillgamez/shared';
+import { VALID_WAGER_AMOUNTS, tonToCoins, formatCoins } from '@skillgamez/shared';
 import type { WebSocketState } from '../ws/useWebSocket.js';
 
 interface Props {
@@ -22,13 +22,20 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
   const [selected, setSelected] = useState<WagerAmount>(1);
   const [state, setState] = useState<LobbyState>({ kind: 'idle' });
   const [challengeInput, setChallengeInput] = useState('');
+  const [balance, setBalance] = useState<number | null>(null);
+
+  const lastProcessedRef = useRef<unknown>(null);
 
   // Handle incoming messages
   useEffect(() => {
     const msg = ws.lastMessage;
-    if (!msg) return;
+    if (!msg || msg === lastProcessedRef.current) return;
+    lastProcessedRef.current = msg;
 
     switch (msg.type) {
+      case 'BALANCE_UPDATE':
+        setBalance(msg.balance);
+        break;
       case 'QUEUE_JOINED':
         setState({ kind: 'searching', wagerAmount: msg.wagerAmount });
         break;
@@ -36,6 +43,7 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
         setState({ kind: 'idle' });
         break;
       case 'MATCH_FOUND':
+        setBalance(msg.yourBalance);
         setState({ kind: 'found', opponentName: msg.opponent.displayName });
         setTimeout(() => {
           onMatchFound(msg.matchId, msg.opponent, msg.wagerAmount);
@@ -52,6 +60,9 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
         break;
     }
   }, [ws.lastMessage, onMatchFound]);
+
+  const wagerCoins = tonToCoins(selected);
+  const canAfford = balance !== null && balance >= wagerCoins;
 
   const findMatch = useCallback(() => {
     ws.send({ type: 'JOIN_QUEUE', wagerAmount: selected });
@@ -96,6 +107,14 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
         </p>
       </div>
 
+      {/* Coin balance */}
+      {balance !== null && (
+        <div className="bg-slate-800 rounded-xl px-6 py-3 text-center">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Balance</p>
+          <p className="text-2xl font-extrabold text-yellow-400 font-mono">{formatCoins(balance)}</p>
+        </div>
+      )}
+
       {/* Back button */}
       <button onPointerDown={onBack} className="absolute top-4 left-4 text-slate-500 text-sm">
         &larr; Back
@@ -133,9 +152,22 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
                 selected === amt ? 'bg-cyan-500 text-black' : 'bg-slate-800 text-slate-400'
               }`}
             >
-              {amt} TON
+              {tonToCoins(amt)} Coins
             </button>
           ))}
+        </div>
+        {/* Wager cost + remaining balance */}
+        <div className="text-center mt-2">
+          <p className="text-sm text-slate-400">
+            Wager: <span className="text-yellow-400 font-bold">{formatCoins(wagerCoins)}</span>
+          </p>
+          {balance !== null && (
+            <p className={`text-xs mt-1 ${canAfford ? 'text-slate-500' : 'text-red-400'}`}>
+              {canAfford
+                ? `Remaining after wager: ${formatCoins(balance - wagerCoins)}`
+                : 'Not enough Coins'}
+            </p>
+          )}
         </div>
       </div>
 
@@ -145,7 +177,7 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
           {state.kind === 'idle' && (
             <button
               onPointerDown={findMatch}
-              disabled={!ws.connected}
+              disabled={!ws.connected || !canAfford}
               className="w-full py-4 rounded-xl bg-cyan-500 text-black text-xl font-extrabold tracking-wider active:bg-cyan-400 transition-colors disabled:opacity-50"
             >
               FIND MATCH
@@ -173,7 +205,7 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
             <>
               <button
                 onPointerDown={createChallenge}
-                disabled={!ws.connected}
+                disabled={!ws.connected || !canAfford}
                 className="w-full py-4 rounded-xl bg-cyan-500 text-black text-lg font-extrabold tracking-wider active:bg-cyan-400 transition-colors disabled:opacity-50"
               >
                 CREATE CHALLENGE

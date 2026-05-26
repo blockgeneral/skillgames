@@ -6,7 +6,7 @@ import type { Prompt, PromptResult, RoundResult } from './quickdraw.js';
 export interface AuthOkMessage { readonly type: 'AUTH_OK'; readonly playerId: PlayerId; readonly displayName: string }
 export interface QueueJoinedMessage { readonly type: 'QUEUE_JOINED'; readonly wagerAmount: WagerAmount; readonly position: number }
 export interface QueueLeftMessage { readonly type: 'QUEUE_LEFT' }
-export interface MatchFoundMessage { readonly type: 'MATCH_FOUND'; readonly matchId: MatchId; readonly opponent: PlayerInfo; readonly wagerAmount: WagerAmount }
+export interface MatchFoundMessage { readonly type: 'MATCH_FOUND'; readonly matchId: MatchId; readonly opponent: PlayerInfo; readonly wagerAmount: WagerAmount; readonly yourBalance: number }
 export interface ChallengeCreatedMessage { readonly type: 'CHALLENGE_CREATED'; readonly challengeCode: string; readonly wagerAmount: WagerAmount }
 export interface ChallengeCancelledMessage { readonly type: 'CHALLENGE_CANCELLED' }
 export interface ChallengeExpiredMessage { readonly type: 'CHALLENGE_EXPIRED' }
@@ -46,6 +46,7 @@ export interface MatchResultServerMessage {
   readonly playerATotalMs: number; readonly playerBTotalMs: number;
   readonly roundResults: RoundResult[];
   readonly forfeit: boolean;
+  readonly yourNewBalance: number; readonly coinsWon: number;
 }
 
 export interface MatchStateSyncMessage {
@@ -59,13 +60,20 @@ export interface ErrorMessage { readonly type: 'ERROR'; readonly code: string; r
 export interface MatchCancelledMessage { readonly type: 'MATCH_CANCELLED'; readonly matchId: MatchId; readonly reason: string }
 export interface OpponentDisconnectedMessage { readonly type: 'OPPONENT_DISCONNECTED'; readonly matchId: MatchId }
 
+export interface BalanceUpdateMessage { readonly type: 'BALANCE_UPDATE'; readonly balance: number }
+
+export interface RematchOfferedMessage { readonly type: 'REMATCH_OFFERED'; readonly matchId: MatchId; readonly opponentName: string; readonly wagerAmount: WagerAmount }
+export interface RematchAcceptedMessage { readonly type: 'REMATCH_ACCEPTED'; readonly newMatchId: MatchId }
+export interface RematchDeclinedMessage { readonly type: 'REMATCH_DECLINED'; readonly reason: string }
+
 export type ServerMessage =
   | AuthOkMessage | QueueJoinedMessage | QueueLeftMessage | MatchFoundMessage
   | ChallengeCreatedMessage | ChallengeCancelledMessage | ChallengeExpiredMessage | ChallengeInvalidMessage
   | WaitingForOpponentReadyMessage | BothReadyMessage | CountdownMessage
   | PromptShowMessage | PromptResultMessage | OpponentProgressMessage
   | RoundStartMessage | RoundResultServerMessage | MatchResultServerMessage | MatchStateSyncMessage
-  | DepositStatusMessage | ErrorMessage | MatchCancelledMessage | OpponentDisconnectedMessage;
+  | DepositStatusMessage | ErrorMessage | MatchCancelledMessage | OpponentDisconnectedMessage
+  | BalanceUpdateMessage | RematchOfferedMessage | RematchAcceptedMessage | RematchDeclinedMessage;
 
 // ─── Client → Server messages ───────────────────────────────────────────────
 
@@ -92,9 +100,10 @@ export interface SwipeMessage {
 
 export interface FalseStartMessage { readonly type: 'FALSE_START'; readonly matchId: MatchId; readonly roundNumber: number; readonly timestamp: Timestamp }
 export interface RematchRequestMessage { readonly type: 'REMATCH_REQUEST'; readonly matchId: MatchId }
+export interface RematchDeclineMessage { readonly type: 'REMATCH_DECLINE'; readonly matchId: MatchId }
 
 export type ClientMessage =
   | AuthMessage | JoinQueueMessage | LeaveQueueMessage
   | CreateChallengeMessage | JoinChallengeMessage | CancelChallengeMessage
   | PlayerReadyMessage | DepositConfirmedMessage
-  | TapMessage | SwipeMessage | FalseStartMessage | RematchRequestMessage;
+  | TapMessage | SwipeMessage | FalseStartMessage | RematchRequestMessage | RematchDeclineMessage;
