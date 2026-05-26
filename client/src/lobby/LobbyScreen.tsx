@@ -5,6 +5,7 @@ import type { WebSocketState } from '../ws/useWebSocket.js';
 
 interface Props {
   ws: WebSocketState;
+  balance: number | null;
   onMatchFound: (matchId: MatchId, opponent: PlayerInfo, wagerAmount: WagerAmount) => void;
   onBack: () => void;
 }
@@ -17,12 +18,11 @@ type LobbyState =
   | { kind: 'joining_challenge' }
   | { kind: 'found'; opponentName: string };
 
-export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
+export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.Element {
   const [tab, setTab] = useState<LobbyTab>('quick');
   const [selected, setSelected] = useState<WagerAmount>(1);
   const [state, setState] = useState<LobbyState>({ kind: 'idle' });
   const [challengeInput, setChallengeInput] = useState('');
-  const [balance, setBalance] = useState<number | null>(null);
 
   const lastProcessedRef = useRef<unknown>(null);
 
@@ -33,9 +33,6 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
     lastProcessedRef.current = msg;
 
     switch (msg.type) {
-      case 'BALANCE_UPDATE':
-        setBalance(msg.balance);
-        break;
       case 'QUEUE_JOINED':
         setState({ kind: 'searching', wagerAmount: msg.wagerAmount });
         break;
@@ -43,7 +40,6 @@ export function LobbyScreen({ ws, onMatchFound, onBack }: Props): JSX.Element {
         setState({ kind: 'idle' });
         break;
       case 'MATCH_FOUND':
-        setBalance(msg.yourBalance);
         setState({ kind: 'found', opponentName: msg.opponent.displayName });
         setTimeout(() => {
           onMatchFound(msg.matchId, msg.opponent, msg.wagerAmount);

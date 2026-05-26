@@ -318,9 +318,28 @@ async function handleMatchFound(
   manager.send(playerA, { type: 'MATCH_FOUND', matchId, opponent: infoB, wagerAmount, yourBalance: balA });
   manager.send(playerB, { type: 'MATCH_FOUND', matchId, opponent: infoA, wagerAmount, yourBalance: balB });
 
-  // Create game session with onComplete callback that credits winner
+  // Guard: sendBoth calls the callback twice (once per player),
+  // but match result settlement must only run once.
+  let matchResultHandled = false;
+
   gameSessions.createSession(match, (pid, msg) => {
-    if (msg.type === 'MATCH_RESULT' && !msg.forfeit) {
+    if (msg.type === 'MATCH_RESULT') {
+      if (matchResultHandled) return; // second sendBoth invocation — skip
+      matchResultHandled = true;
+
+      // Reset connection state for both players
+      for (const p of [playerA, playerB]) {
+        const c = manager.getConnection(p);
+        if (c) { c.state = 'idle'; c.matchId = null; }
+      }
+
+      if (msg.forfeit) {
+        // Forfeit MATCH_RESULT — just forward it (balance handled in disconnect handler)
+        manager.send(playerA, { ...msg, yourNewBalance: 0, coinsWon: 0 });
+        manager.send(playerB, { ...msg, yourNewBalance: 0, coinsWon: 0 });
+        return;
+      }
+
       // Credit winner asynchronously
       void (async () => {
         const winnerId = msg.winnerId;
@@ -329,7 +348,6 @@ async function handleMatchFound(
           await coinBalance.credit(winnerId, wagerCoins * 2, 'wager_win', matchId);
           const winBal = await coinBalance.getBalance(winnerId);
           const loseBal = await coinBalance.getBalance(loserId);
-          // Send enriched MATCH_RESULT with balance info
           manager.send(winnerId, { ...msg, yourNewBalance: winBal, coinsWon: wagerCoins });
           manager.send(loserId, { ...msg, yourNewBalance: loseBal, coinsWon: -wagerCoins });
           manager.send(winnerId, { type: 'BALANCE_UPDATE', balance: winBal });
@@ -346,10 +364,9 @@ async function handleMatchFound(
           manager.send(playerB, { type: 'BALANCE_UPDATE', balance: balBNew });
         }
         await matchRegistry.updateStatus(matchId, 'completed');
-        // Clean up player→match mappings so they can rematch
         await matchRegistry.remove(matchId);
       })();
-      return; // Don't send the raw MATCH_RESULT — we send enriched versions above
+      return;
     }
     manager.send(pid, msg);
   });

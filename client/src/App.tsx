@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { MatchId, PlayerId, PlayerInfo, WagerAmount } from '@skillgamez/shared';
 import { useGame } from './game/useGame.js';
 import { useMultiplayerGame } from './game/useMultiplayerGame.js';
@@ -30,6 +30,8 @@ export function App(): JSX.Element {
   const ws = useWebSocket();
   const [matchInfo, setMatchInfo] = useState<{ matchId: MatchId; opponent: PlayerInfo; wagerAmount: WagerAmount } | null>(null);
   const [readySent, setReadySent] = useState(false);
+  const [coinBalance, setCoinBalance] = useState<number | null>(null);
+  const lastBalanceMsgRef = useRef<unknown>(null);
 
   // Local practice game
   const practice = useGame();
@@ -55,6 +57,20 @@ export function App(): JSX.Element {
     document.addEventListener('contextmenu', handler);
     return () => document.removeEventListener('contextmenu', handler);
   }, []);
+
+  // Track BALANCE_UPDATE at App level so balance persists across screen transitions
+  useEffect(() => {
+    const msg = ws.lastMessage;
+    if (!msg || msg === lastBalanceMsgRef.current) return;
+    if (msg.type === 'BALANCE_UPDATE') {
+      lastBalanceMsgRef.current = msg;
+      setCoinBalance(msg.balance);
+    } else if (msg.type === 'MATCH_FOUND') {
+      setCoinBalance(msg.yourBalance);
+    } else if (msg.type === 'MATCH_RESULT') {
+      setCoinBalance(msg.yourNewBalance);
+    }
+  }, [ws.lastMessage]);
 
   // Connect when entering lobby
   useEffect(() => {
@@ -134,7 +150,7 @@ export function App(): JSX.Element {
       )}
 
       {screen === 'lobby' && (
-        <LobbyScreen ws={ws} onMatchFound={handleMatchFound} onBack={handleBackToStart} />
+        <LobbyScreen ws={ws} balance={coinBalance} onMatchFound={handleMatchFound} onBack={handleBackToStart} />
       )}
 
       {screen === 'ready' && matchInfo && (
