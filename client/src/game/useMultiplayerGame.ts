@@ -47,6 +47,33 @@ export function useMultiplayerGame(
     return () => { if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current); };
   }, []);
 
+  // Reset all game state when matchId changes (new match or rematch)
+  const prevMatchIdRef = useRef(matchId);
+  useEffect(() => {
+    if (matchId && matchId !== prevMatchIdRef.current) {
+      prevMatchIdRef.current = matchId;
+      setPhase({ kind: 'start' });
+      setActivePrompt(null);
+      setCurrentRound(0);
+      setCurrentPrompt(0);
+      setPlayerResults([[], [], []]);
+      setRoundResults([]);
+      setScore([0, 0]);
+      setRunningTotalMs(0);
+      setCurrentMissCount(0);
+      setOpponentPrompt(0);
+      setWaitingForOpponent(false);
+      setMatchComplete(false);
+      setForfeit(false);
+      setCoinsWon(0);
+      setNewBalance(0);
+      setRematchState('idle');
+      setRematchNewMatchId(null);
+      iAmPlayerARef.current = null;
+      lastProcessedRef.current = null;
+    }
+  }, [matchId]);
+
   // Process server messages
   useEffect(() => {
     const msg = ws.lastMessage;

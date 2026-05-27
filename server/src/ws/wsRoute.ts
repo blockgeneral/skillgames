@@ -61,6 +61,16 @@ export function registerWsRoute(
         socket.send(JSON.stringify({ type: 'AUTH_OK', playerId, displayName: user.firstName }));
         socket.on('pong', () => { if (playerId) manager.updateHeartbeat(playerId); });
 
+        // Clean up stale match state from previous session (server restart, unclean disconnect)
+        const staleMatch = await matchRegistry.getByPlayer(playerId);
+        if (staleMatch) {
+          const activeSession = gameSessions.getSession(staleMatch.matchId);
+          if (!activeSession) {
+            // Match exists in Redis but not in memory — stale. Clean up.
+            await matchRegistry.remove(staleMatch.matchId);
+          }
+        }
+
         // Send initial balance
         const balance = await coinBalance.getBalance(playerId);
         socket.send(JSON.stringify({ type: 'BALANCE_UPDATE', balance }));
@@ -252,6 +262,7 @@ export function registerWsRoute(
           gameSessions.handleForfeit(pid);
           await removeSession(pid);
           await matchRegistry.updateStatus(mid, 'cancelled');
+          await matchRegistry.remove(mid);
         }, RECONNECT_GRACE_MS);
         graceTimers.set(playerId, timer);
       } else {

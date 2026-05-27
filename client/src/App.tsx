@@ -58,19 +58,23 @@ export function App(): JSX.Element {
     return () => document.removeEventListener('contextmenu', handler);
   }, []);
 
-  // Track BALANCE_UPDATE at App level so balance persists across screen transitions
+  // Track balance + MATCH_FOUND at App level (survives screen transitions & rematches)
   useEffect(() => {
     const msg = ws.lastMessage;
     if (!msg || msg === lastBalanceMsgRef.current) return;
+    lastBalanceMsgRef.current = msg;
     if (msg.type === 'BALANCE_UPDATE') {
-      lastBalanceMsgRef.current = msg;
       setCoinBalance(msg.balance);
     } else if (msg.type === 'MATCH_FOUND') {
       setCoinBalance(msg.yourBalance);
+      // Always update matchInfo from MATCH_FOUND (handles initial match + rematch)
+      setMatchInfo({ matchId: msg.matchId, opponent: msg.opponent, wagerAmount: msg.wagerAmount });
+      setReadySent(false);
+      if (screen !== 'ready') setScreen('ready');
     } else if (msg.type === 'MATCH_RESULT') {
       setCoinBalance(msg.yourNewBalance);
     }
-  }, [ws.lastMessage]);
+  }, [ws.lastMessage, screen]);
 
   // Connect when entering lobby
   useEffect(() => {
@@ -117,11 +121,9 @@ export function App(): JSX.Element {
     setScreen('start');
   }, [ws, practice]);
 
-  const handleRematchAccepted = useCallback((_newMatchId: MatchId) => {
-    // The server already created the new match and debited balances.
-    // The MATCH_FOUND message that follows will update matchInfo.
-    setReadySent(false);
-    setScreen('ready');
+  const handleRematchAccepted = useCallback(() => {
+    // MATCH_FOUND will follow from server and is handled by the App-level effect above.
+    // No action needed here — the effect will set matchInfo and screen.
   }, []);
 
   const handlePlayAgain = useCallback(() => {
@@ -179,7 +181,7 @@ function MultiplayerGame({ mp, onPlayAgain, onMainMenu, onRematchAccepted }: {
   mp: ReturnType<typeof useMultiplayerGame>;
   onPlayAgain: () => void;
   onMainMenu: () => void;
-  onRematchAccepted: (newMatchId: import('@skillgamez/shared').MatchId) => void;
+  onRematchAccepted: () => void;
 }): JSX.Element | null {
   const { phase, match, activePrompt, currentRound, currentPrompt, runningTotalMs: _rt,
     currentMissCount, opponentPrompt, handleInput,
@@ -188,7 +190,7 @@ function MultiplayerGame({ mp, onPlayAgain, onMainMenu, onRematchAccepted }: {
   // Handle rematch acceptance — transition to new match
   useEffect(() => {
     if (rematchNewMatchId) {
-      onRematchAccepted(rematchNewMatchId);
+      onRematchAccepted();
     }
   }, [rematchNewMatchId, onRematchAccepted]);
 
