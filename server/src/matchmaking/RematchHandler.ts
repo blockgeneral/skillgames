@@ -1,6 +1,8 @@
 import type { PlayerId, MatchId, WagerAmount } from '@skillgamez/shared';
 
-const REMATCH_TIMEOUT_MS = 15_000;
+function getRematchTimeout(): number {
+  return 15_000 * Math.max(0.01, Number(process.env.GAME_TIME_SCALE ?? 1));
+}
 
 interface PendingRematch {
   matchId: MatchId;
@@ -39,7 +41,7 @@ export class RematchHandler {
     const timer = setTimeout(() => {
       this.pending.delete(matchId);
       onTimeout();
-    }, REMATCH_TIMEOUT_MS);
+    }, getRematchTimeout());
 
     this.pending.set(matchId, { matchId, requesterId, opponentId, wagerAmount, timer });
     return 'created';

@@ -12,6 +12,10 @@ import type { RoundConfig, SwipeDirection } from '@skillgamez/shared';
 import type { ActiveMatch } from '../match/MatchRegistry.js';
 import { logInput } from './InputLogger.js';
 
+function getTimeScale(): number {
+  return Math.max(0.01, Number(process.env.GAME_TIME_SCALE ?? 1));
+}
+
 type SessionPhase = 'waiting_for_ready' | 'countdown' | 'playing' | 'round_result' | 'complete';
 
 interface PlayerRoundState {
@@ -237,9 +241,9 @@ export class QuickDrawSession {
       this.sendBoth({ type: 'COUNTDOWN', matchId: this.matchId, step: steps[i]! });
       i++;
       if (i < steps.length) {
-        this.addTimer(setTimeout(advance, 800));
+        this.scheduleTimer(advance, 800);
       } else {
-        this.addTimer(setTimeout(() => this.startRound(0), 500));
+        this.scheduleTimer(() => this.startRound(0), 500);
       }
     };
     advance();
@@ -271,9 +275,8 @@ export class QuickDrawSession {
     state.missCountOnCurrent = 0;
 
     const delay = this.rounds[roundIndex]!.prompts[promptIndex]!.delay;
-    const timer = setTimeout(() => this.showPrompt(playerId, roundIndex, promptIndex), delay);
+    const timer = this.scheduleTimer(() => this.showPrompt(playerId, roundIndex, promptIndex), delay);
     state.delayTimer = timer;
-    this.addTimer(timer);
   }
 
   private showPrompt(playerId: PlayerId, roundIndex: number, promptIndex: number): void {
@@ -289,12 +292,11 @@ export class QuickDrawSession {
       prompt, timestamp: now as Timestamp,
     });
 
-    const timer = setTimeout(
+    const timer = this.scheduleTimer(
       () => this.handleTimeout(playerId, roundIndex, promptIndex),
       QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS,
     );
     state.timeoutTimer = timer;
-    this.addTimer(timer);
   }
 
   private handleTimeout(playerId: PlayerId, roundIndex: number, promptIndex: number): void {
@@ -363,9 +365,9 @@ export class QuickDrawSession {
     });
 
     if (roundIndex + 1 >= QUICK_DRAW_CONSTANTS.ROUNDS_PER_MATCH) {
-      this.addTimer(setTimeout(() => this.finishMatch(), 2500));
+      this.scheduleTimer(() => this.finishMatch(), 2500);
     } else {
-      this.addTimer(setTimeout(() => this.startRound(roundIndex + 1), 2500));
+      this.scheduleTimer(() => this.startRound(roundIndex + 1), 2500);
     }
   }
 
@@ -396,8 +398,10 @@ export class QuickDrawSession {
     this.send(this.playerB, msg);
   }
 
-  private addTimer(timer: ReturnType<typeof setTimeout>): void {
+  private scheduleTimer(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
+    const timer = setTimeout(fn, ms * getTimeScale());
     this.timers.push(timer);
+    return timer;
   }
 
   private clearAllTimers(): void {

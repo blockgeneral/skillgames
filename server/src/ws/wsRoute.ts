@@ -14,6 +14,9 @@ import { CoinBalanceManager } from '../wallet/CoinBalance.js';
 import { RematchHandler } from '../matchmaking/RematchHandler.js';
 import { setSession, removeSession } from '../redis/sessionStore.js';
 
+function getScaledGraceMs(): number {
+  return RECONNECT_GRACE_MS * Math.max(0.01, Number(process.env.GAME_TIME_SCALE ?? 1));
+}
 const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function registerWsRoute(
@@ -263,7 +266,7 @@ export function registerWsRoute(
           await removeSession(pid);
           await matchRegistry.updateStatus(mid, 'cancelled');
           await matchRegistry.remove(mid);
-        }, RECONNECT_GRACE_MS);
+        }, getScaledGraceMs());
         graceTimers.set(playerId, timer);
       } else {
         await removeSession(playerId);
