@@ -14,11 +14,11 @@ interface Props {
 }
 
 export function MatchResultScreen({ match, coinsWon, newBalance, rematchState, onRematch, onDeclineRematch, onPlayAgain, onMainMenu }: Props): JSX.Element {
-  // Winner determined by cumulative total time across all rounds
+  // coinsWon is the single source of truth from the server (positive = win, negative = lose, 0 = draw)
+  const won = coinsWon > 0;
+  const draw = coinsWon === 0;
   const totalPlayerMs = match.roundResults.reduce((sum, rr) => sum + rr.playerATotalMs, 0);
   const totalOpponentMs = match.roundResults.reduce((sum, rr) => sum + rr.playerBTotalMs, 0);
-  const won = totalPlayerMs < totalOpponentMs;
-  const draw = totalPlayerMs === totalOpponentMs;
 
   // Stats across all prompts
   const allPlayerResults = match.playerResults.flat();

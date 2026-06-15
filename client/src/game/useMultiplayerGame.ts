@@ -25,7 +25,7 @@ export function useMultiplayerGame(
   const [currentMissCount, setCurrentMissCount] = useState(0);
   const [opponentPrompt, setOpponentPrompt] = useState(0);
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
-  const [matchComplete, setMatchComplete] = useState(false);
+  const [_matchComplete, setMatchComplete] = useState(false);
   const [forfeit, setForfeit] = useState(false);
   const [coinsWon, setCoinsWon] = useState(0);
   const [newBalance, setNewBalance] = useState(0);
@@ -176,6 +176,9 @@ export function useMultiplayerGame(
         break;
 
       case 'ROUND_RESULT': {
+        // Cancel any pending feedback timer — this is authoritative
+        if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
+
         const ri = msg.roundNumber - 1;
         // Determine if I am playerA
         if (iAmPlayerARef.current === null) {
@@ -203,6 +206,9 @@ export function useMultiplayerGame(
       }
 
       case 'MATCH_RESULT': {
+        // Cancel any pending feedback timer — this is authoritative
+        if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
+
         setMatchComplete(true);
         setForfeit(msg.forfeit);
         setCoinsWon(msg.coinsWon);
@@ -277,8 +283,9 @@ export function useMultiplayerGame(
     }
   }, [ws, matchId, currentRound, currentPrompt]);
 
-  // Build MatchState compatible with existing components
-  const matchState: MatchState | null = matchComplete || roundResults.length > 0 ? {
+  // Build MatchState — available as soon as the game starts (not just after first round result)
+  const gameStarted = phase.kind !== 'start';
+  const matchState: MatchState | null = gameStarted ? {
     seed: '', wagerAmount,
     roundConfigs: [],
     playerResults,
