@@ -36,9 +36,6 @@ export function useMultiplayerGame(
   const promptAppearedAtRef = useRef(0);
   // Track which player slot I am (for normalizing A/B results)
   const iAmPlayerARef = useRef<boolean | null>(null);
-  // Ref to read playerResults without adding to effect deps
-  const playerResultsRef = useRef(playerResults);
-  playerResultsRef.current = playerResults;
   // Prevent re-processing the same WebSocket message
   const lastProcessedRef = useRef<unknown>(null);
 
@@ -180,10 +177,10 @@ export function useMultiplayerGame(
         if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
 
         const ri = msg.roundNumber - 1;
-        // Determine if I am playerA
+        // Determine if I am playerA by checking the playerId in the results
         if (iAmPlayerARef.current === null) {
-          const myResultsCount = playerResultsRef.current[ri]?.length ?? 0;
-          iAmPlayerARef.current = msg.playerAResults.length === myResultsCount;
+          const firstA = msg.playerAResults[0];
+          iAmPlayerARef.current = firstA?.playerId === myPlayerId;
         }
         const isA = iAmPlayerARef.current;
         const normalized: RoundResult = {
