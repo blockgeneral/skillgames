@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import type { PlayerId } from '@skillgamez/shared';
 import type { ServerMessage, ClientMessage } from '@skillgamez/shared';
 
@@ -66,15 +67,21 @@ export function useWebSocket(): WebSocketState {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
-        if (msg.type === 'AUTH_OK') {
-          setPlayerId(msg.playerId);
-          setDisplayName(msg.displayName);
-          setConnected(true);
-          setError(null);
-        } else if (msg.type === 'ERROR') {
-          setError(msg.message);
-        }
-        setLastMessage(msg);
+        // flushSync ensures each message gets its own render cycle.
+        // Without it, React 18 batching can merge rapid back-to-back
+        // messages (e.g. MATCH_RESULT + BALANCE_UPDATE) into one render,
+        // dropping the first message before any effect processes it.
+        flushSync(() => {
+          if (msg.type === 'AUTH_OK') {
+            setPlayerId(msg.playerId);
+            setDisplayName(msg.displayName);
+            setConnected(true);
+            setError(null);
+          } else if (msg.type === 'ERROR') {
+            setError(msg.message);
+          }
+          setLastMessage(msg);
+        });
       } catch {
         // Ignore parse errors
       }
