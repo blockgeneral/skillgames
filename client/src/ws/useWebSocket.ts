@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import type { PlayerId } from '@skillgamez/shared';
 import type { ServerMessage, ClientMessage } from '@skillgamez/shared';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001/ws';
+const WS_URL = import.meta.env.VITE_WS_URL ?? `ws://${window.location.hostname}:3001/ws`;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_BASE_MS = 1000;
 
