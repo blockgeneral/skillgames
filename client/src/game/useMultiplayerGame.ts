@@ -100,6 +100,12 @@ export function useMultiplayerGame(
         setCurrentMissCount(0);
         setOpponentPrompt(0);
         setPhase({ kind: 'round_header', roundIndex: ri });
+        // Show round header briefly, then transition to gameplay area (prompt_delay)
+        // so the player sees the empty arena before the first shape appears.
+        // The server's first-prompt delay (1-3s) handles when PROMPT_SHOW actually arrives.
+        feedbackTimerRef.current = setTimeout(() => {
+          setPhase({ kind: 'prompt_delay', roundIndex: ri, promptIndex: 0 });
+        }, 800);
         break;
       }
 
