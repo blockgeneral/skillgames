@@ -1,10 +1,16 @@
 {
-  "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "./src",
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
     "outDir": "./dist",
-    "target": "ES2022",
-    "lib": ["ES2022"]
+    "rootDir": ".",
+    "declaration": true,
+    "sourceMap": true,
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*"]
+  "include": ["wrappers/**/*", "tests/**/*", "scripts/**/*"]
 }
