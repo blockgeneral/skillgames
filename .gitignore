@@ -3,7 +3,9 @@ node_modules
 
 # Build output
 dist
+build
 client/dist
+contracts/build
 
 # Test coverage
 coverage
