@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { MatchId, PlayerId, PlayerInfo, WagerAmount, Prompt, PromptResult, RoundResult, Timestamp } from '@skillgamez/shared';
-import { QUICK_DRAW_CONSTANTS } from '@skillgamez/shared';
+import { QUICK_DRAW_CONSTANTS, isTapOnTarget } from '@skillgamez/shared';
 import type { WebSocketState } from '../ws/useWebSocket.js';
 import type { GamePhase, MatchState, GameInput } from './types.js';
 import { PLAYER_ID, OPPONENT_ID } from './types.js';
@@ -39,6 +39,14 @@ export function useMultiplayerGame(
   // Prevent re-processing the same WebSocket message
   const lastProcessedRef = useRef<unknown>(null);
 
+  // Optimistic feedback tracking: tracks the prompt index we've already shown feedback for
+  // so that when PROMPT_RESULT arrives we can skip redundant UI updates
+  const optimisticRef = useRef<{
+    roundIndex: number;
+    promptIndex: number;
+    hit: boolean;
+  } | null>(null);
+
   // Cleanup
   useEffect(() => {
     return () => { if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current); };
@@ -68,6 +76,7 @@ export function useMultiplayerGame(
       setRematchNewMatchId(null);
       iAmPlayerARef.current = null;
       lastProcessedRef.current = null;
+      optimisticRef.current = null;
     }
   }, [matchId]);
 
@@ -99,10 +108,8 @@ export function useMultiplayerGame(
         setRunningTotalMs(0);
         setCurrentMissCount(0);
         setOpponentPrompt(0);
+        optimisticRef.current = null;
         setPhase({ kind: 'round_header', roundIndex: ri });
-        // Show round header briefly, then transition to gameplay area (prompt_delay)
-        // so the player sees the empty arena before the first shape appears.
-        // The server's first-prompt delay (1-3s) handles when PROMPT_SHOW actually arrives.
         feedbackTimerRef.current = setTimeout(() => {
           setPhase({ kind: 'prompt_delay', roundIndex: ri, promptIndex: 0 });
         }, 800);
@@ -116,6 +123,7 @@ export function useMultiplayerGame(
         setCurrentPrompt(pi);
         setActivePrompt(msg.prompt);
         setCurrentMissCount(0);
+        optimisticRef.current = null;
         promptAppearedAtRef.current = performance.now();
         setPhase({ kind: 'prompt_active', roundIndex: ri, promptIndex: pi, promptAppearedAt: performance.now() });
         break;
@@ -124,13 +132,46 @@ export function useMultiplayerGame(
       case 'PROMPT_RESULT': {
         const ri = msg.roundNumber - 1;
         const pi = msg.promptNumber - 1;
+        const opt = optimisticRef.current;
+
+        // Check if we already showed optimistic feedback for this exact prompt
+        if (opt && opt.roundIndex === ri && opt.promptIndex === pi) {
+          // Server agrees with our optimistic prediction — just update authoritative totals
+          if (opt.hit === msg.hit) {
+            setRunningTotalMs(msg.totalMs);
+            setCurrentMissCount(msg.missCount);
+            // If it was a hit, result was already added optimistically
+            // If it was a miss, we already showed miss feedback
+            break;
+          }
+          // Server disagrees — snap to server's version (reconciliation)
+          // Cancel any optimistic timer and fall through to normal handling
+          if (feedbackTimerRef.current) {
+            clearTimeout(feedbackTimerRef.current);
+            feedbackTimerRef.current = undefined;
+          }
+          // If we optimistically added a result for a hit but server says miss,
+          // remove the optimistic result
+          if (opt.hit && !msg.hit) {
+            setPlayerResults(prev =>
+              prev.map((arr, i) => {
+                if (i !== ri) return arr;
+                // Remove the last result if it was our optimistic one
+                const last = arr[arr.length - 1];
+                if (last && last.promptNumber === pi + 1) return arr.slice(0, -1);
+                return arr;
+              })
+            );
+          }
+          optimisticRef.current = null;
+          // Fall through to normal handling below
+        }
+
         setRunningTotalMs(msg.totalMs);
         setCurrentMissCount(msg.missCount);
 
         if (msg.hit) {
-          // Hit — show feedback, then wait for next PROMPT_SHOW (delay phase)
           setPhase({ kind: 'prompt_feedback', roundIndex: ri, promptIndex: pi, feedbackType: 'hit' });
-          // Add result
           setPlayerResults(prev => {
             const copy = prev.map((r, i) => i === ri ? [...r, makeResult(pi, msg)] : r);
             return copy;
@@ -151,7 +192,6 @@ export function useMultiplayerGame(
             setActivePrompt(null);
           }, 300);
         } else if (msg.reactionMs === null && !msg.hit) {
-          // Timeout or miss
           if (msg.penaltyMs >= QUICK_DRAW_CONSTANTS.REACTION_CEILING_MS) {
             // Timeout
             setPhase({ kind: 'prompt_feedback', roundIndex: ri, promptIndex: pi, feedbackType: 'timeout' });
@@ -179,11 +219,10 @@ export function useMultiplayerGame(
         break;
 
       case 'ROUND_RESULT': {
-        // Cancel any pending feedback timer — this is authoritative
         if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
+        optimisticRef.current = null;
 
         const ri = msg.roundNumber - 1;
-        // Determine if I am playerA by checking the playerId in the results
         if (iAmPlayerARef.current === null) {
           const firstA = msg.playerAResults[0];
           iAmPlayerARef.current = firstA?.playerId === myPlayerId;
@@ -197,6 +236,10 @@ export function useMultiplayerGame(
           playerBTotalMs: isA ? msg.playerBTotalMs : msg.playerATotalMs,
           winnerId: msg.winnerId === myPlayerId ? PLAYER_ID : msg.winnerId === null ? null : OPPONENT_ID,
         };
+        // Replace optimistic results with server-authoritative results for this round
+        setPlayerResults(prev =>
+          prev.map((arr, i) => i === ri ? normalized.playerAResults : arr)
+        );
         setRoundResults(prev => [...prev, normalized]);
         setScore(prev => {
           const newScore: [number, number] = [...prev];
@@ -209,8 +252,8 @@ export function useMultiplayerGame(
       }
 
       case 'MATCH_RESULT': {
-        // Cancel any pending feedback timer — this is authoritative
         if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
+        optimisticRef.current = null;
 
         setMatchComplete(true);
         setForfeit(msg.forfeit);
@@ -252,10 +295,11 @@ export function useMultiplayerGame(
     setRematchState('idle');
   }, [ws, matchId]);
 
-  // Handle game input (tap/swipe/false_start)
+  // Handle game input (tap/swipe/false_start) with optimistic feedback
   const handleInput = useCallback((input: GameInput) => {
     const ri = currentRound;
     const pi = currentPrompt;
+    const prompt = activePrompt;
 
     if (input.gestureType === 'false_start') {
       ws.send({
@@ -264,9 +308,21 @@ export function useMultiplayerGame(
         x: input.normalizedX, y: input.normalizedY,
         timestamp: input.timestamp as Timestamp, isTrusted: input.isTrusted,
       });
+      // False starts are cheap to show — let server handle it (no optimistic needed)
       return;
     }
 
+    // Run local hit detection for optimistic feedback
+    let localHit = false;
+    if (prompt) {
+      if (input.gestureType === 'tap' && prompt.type === 'tap') {
+        localHit = isTapOnTarget({ x: input.normalizedX, y: input.normalizedY }, prompt);
+      } else if (input.gestureType === 'swipe' && prompt.type === 'swipe' && input.swipeDirection && prompt.swipeDirection) {
+        localHit = input.swipeDirection === prompt.swipeDirection;
+      }
+    }
+
+    // Send to server (unchanged)
     if (input.gestureType === 'tap') {
       ws.send({
         type: 'TAP', matchId,
@@ -284,9 +340,42 @@ export function useMultiplayerGame(
         timestamp: input.timestamp as Timestamp, isTrusted: input.isTrusted,
       });
     }
-  }, [ws, matchId, currentRound, currentPrompt]);
 
-  // Build MatchState — available as soon as the game starts (not just after first round result)
+    // Show optimistic feedback immediately
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = undefined;
+    }
+
+    optimisticRef.current = { roundIndex: ri, promptIndex: pi, hit: localHit };
+
+    if (localHit) {
+      const reactionMs = Math.round(input.timestamp - promptAppearedAtRef.current);
+      // Optimistic hit feedback
+      setPhase({ kind: 'prompt_feedback', roundIndex: ri, promptIndex: pi, feedbackType: 'hit' });
+      setPlayerResults(prev => {
+        const optimisticResult: PromptResult = {
+          promptNumber: pi + 1, playerId: null,
+          reactionMs, hit: true, falseStart: false, missed: false, timedOut: false,
+          missCount: currentMissCount,
+        };
+        return prev.map((arr, i) => i === ri ? [...arr, optimisticResult] : arr);
+      });
+      feedbackTimerRef.current = setTimeout(() => {
+        setPhase({ kind: 'prompt_delay', roundIndex: ri, promptIndex: pi + 1 });
+        setActivePrompt(null);
+      }, FEEDBACK_DURATION_MS);
+    } else {
+      // Optimistic miss feedback
+      setPhase({ kind: 'prompt_feedback', roundIndex: ri, promptIndex: pi, feedbackType: 'miss' });
+      setCurrentMissCount(prev => prev + 1);
+      feedbackTimerRef.current = setTimeout(() => {
+        setPhase({ kind: 'prompt_active', roundIndex: ri, promptIndex: pi, promptAppearedAt: promptAppearedAtRef.current });
+      }, FEEDBACK_DURATION_MS);
+    }
+  }, [ws, matchId, currentRound, currentPrompt, activePrompt, currentMissCount]);
+
+  // Build MatchState
   const gameStarted = phase.kind !== 'start';
   const matchState: MatchState | null = gameStarted ? {
     seed: '', wagerAmount,

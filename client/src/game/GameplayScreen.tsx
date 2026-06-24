@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import type { Prompt, PromptResult, SwipeDirection } from '@skillgamez/shared';
 import { QUICK_DRAW_CONSTANTS } from '@skillgamez/shared';
 import type { GameInput, PromptFeedback, PromptStatus } from './types.js';
@@ -43,6 +43,23 @@ const ARROW_ROTATION: Record<SwipeDirection, number> = { right: 0, down: 90, lef
 
 export function GameplayScreen({ promptIndex, subPhase, prompt, feedbackType, results, currentMissCount, onInput, tapPosition, opponentPrompt }: Props): JSX.Element {
   const pointerStartRef = useRef<{ nx: number; ny: number; cx: number; cy: number } | null>(null);
+
+  // Prevent iOS native gestures (pull-to-refresh, swipe-to-navigate) during gameplay
+  useEffect(() => {
+    const isActive = subPhase === 'active' || subPhase === 'delay' || subPhase === 'feedback';
+    if (!isActive) return;
+
+    const prev = document.body.style.overscrollBehavior;
+    document.body.style.overscrollBehavior = 'none';
+
+    const preventTouch = (e: TouchEvent) => { e.preventDefault(); };
+    document.addEventListener('touchmove', preventTouch, { passive: false });
+
+    return () => {
+      document.body.style.overscrollBehavior = prev;
+      document.removeEventListener('touchmove', preventTouch);
+    };
+  }, [subPhase]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {

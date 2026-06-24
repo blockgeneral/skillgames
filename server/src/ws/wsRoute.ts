@@ -66,11 +66,22 @@ export function registerWsRoute(
 
         // Clean up stale match state from previous session (server restart, unclean disconnect)
         const staleMatch = await matchRegistry.getByPlayer(playerId);
-        if (staleMatch) {
+        if (staleMatch && staleMatch.status !== 'completed') {
           const activeSession = gameSessions.getSession(staleMatch.matchId);
           if (!activeSession) {
             // Match exists in Redis but not in memory — stale. Clean up.
             await matchRegistry.remove(staleMatch.matchId);
+          } else {
+            // Match exists in memory — check if opponent is still connected
+            const opponentId = staleMatch.playerA === playerId ? staleMatch.playerB : staleMatch.playerA;
+            const opponentConn = manager.getConnection(opponentId);
+            if (!opponentConn) {
+              // Opponent disconnected — clean up the stale match
+              gameSessions.removeSession(staleMatch.matchId);
+              await matchRegistry.updateStatus(staleMatch.matchId, 'cancelled');
+              await matchRegistry.remove(staleMatch.matchId);
+              socket.send(JSON.stringify({ type: 'MATCH_CANCELLED', matchId: staleMatch.matchId, reason: 'stale_match_cleanup' }));
+            }
           }
         }
 
@@ -348,9 +359,12 @@ async function handleMatchFound(
       }
 
       if (msg.forfeit) {
-        // Forfeit MATCH_RESULT — just forward it (balance handled in disconnect handler)
-        manager.send(playerA, { ...msg, yourNewBalance: 0, coinsWon: 0 });
-        manager.send(playerB, { ...msg, yourNewBalance: 0, coinsWon: 0 });
+        // Forfeit MATCH_RESULT — balance is handled in the disconnect handler,
+        // but enrich with coinsWon so the winner's UI shows the correct result.
+        const winnerId = msg.winnerId;
+        const loserId = winnerId === playerA ? playerB : playerA;
+        manager.send(winnerId ?? playerA, { ...msg, yourNewBalance: 0, coinsWon: wagerCoins });
+        manager.send(loserId, { ...msg, yourNewBalance: 0, coinsWon: -wagerCoins });
         return;
       }
 

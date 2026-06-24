@@ -211,6 +211,14 @@ export class QuickDrawSession {
   handleDisconnect(playerId: PlayerId): void {
     const opponent = playerId === this.playerA ? this.playerB : this.playerA;
     this.send(opponent, { type: 'OPPONENT_DISCONNECTED', matchId: this.matchId });
+
+    // Pause the disconnected player's timers so prompts don't time out individually.
+    // The grace period in wsRoute will call forfeit() if they don't reconnect.
+    const state = this.playerStates.get(playerId);
+    if (state) {
+      if (state.delayTimer) { clearTimeout(state.delayTimer); state.delayTimer = null; }
+      if (state.timeoutTimer) { clearTimeout(state.timeoutTimer); state.timeoutTimer = null; }
+    }
   }
 
   forfeit(disconnectedPlayerId: PlayerId): void {

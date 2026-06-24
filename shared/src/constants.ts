@@ -9,8 +9,8 @@ export const VALID_WAGER_AMOUNTS: readonly WagerAmount[] = [0.5, 1, 2, 5, 10, 25
 /** Timeout for deposits after match creation (5 minutes) */
 export const MATCH_TIMEOUT_MS = 300_000;
 
-/** Grace period for opponent reconnection (30 seconds) */
-export const RECONNECT_GRACE_MS = 30_000;
+/** Grace period for opponent reconnection (10 seconds) */
+export const RECONNECT_GRACE_MS = 10_000;
 
 /** WebSocket heartbeat interval (15 seconds) */
 export const HEARTBEAT_INTERVAL_MS = 15_000;
