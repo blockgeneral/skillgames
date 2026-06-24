@@ -102,13 +102,15 @@ export function useMultiplayerGame(
       }
 
       case 'ROUND_START': {
+        // Authoritative — clear any pending optimistic timers
+        if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
+        optimisticRef.current = null;
         const ri = msg.roundNumber - 1;
         setCurrentRound(ri);
         setCurrentPrompt(0);
         setRunningTotalMs(0);
         setCurrentMissCount(0);
         setOpponentPrompt(0);
-        optimisticRef.current = null;
         setPhase({ kind: 'round_header', roundIndex: ri });
         feedbackTimerRef.current = setTimeout(() => {
           setPhase({ kind: 'prompt_delay', roundIndex: ri, promptIndex: 0 });
@@ -117,13 +119,15 @@ export function useMultiplayerGame(
       }
 
       case 'PROMPT_SHOW': {
+        // PROMPT_SHOW is authoritative — hard override any optimistic/feedback state
+        if (feedbackTimerRef.current) { clearTimeout(feedbackTimerRef.current); feedbackTimerRef.current = undefined; }
+        optimisticRef.current = null;
         const ri = msg.roundNumber - 1;
         const pi = msg.promptNumber - 1;
         setCurrentRound(ri);
         setCurrentPrompt(pi);
         setActivePrompt(msg.prompt);
         setCurrentMissCount(0);
-        optimisticRef.current = null;
         promptAppearedAtRef.current = performance.now();
         setPhase({ kind: 'prompt_active', roundIndex: ri, promptIndex: pi, promptAppearedAt: performance.now() });
         break;

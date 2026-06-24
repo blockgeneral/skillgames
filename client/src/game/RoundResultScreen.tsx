@@ -29,15 +29,19 @@ export function RoundResultScreen({ roundResult, score }: Props): JSX.Element {
     <div className="flex flex-col items-center justify-center h-full gap-5 px-6 animate-fade-in">
       <p className="text-lg text-slate-500 tracking-widest uppercase">Round Complete</p>
 
-      {/* Times */}
+      {/* Times — green for faster, red for slower */}
       <div className="flex gap-8 text-center">
         <div>
           <p className="text-xs text-slate-500 uppercase">You</p>
-          <p className="text-3xl font-mono text-cyan-400">{roundResult.playerATotalMs.toLocaleString()}ms</p>
+          <p className={`text-3xl font-mono ${roundResult.playerATotalMs < roundResult.playerBTotalMs ? 'text-green-400' : roundResult.playerATotalMs > roundResult.playerBTotalMs ? 'text-red-400' : 'text-slate-300'}`}>
+            {roundResult.playerATotalMs.toLocaleString()}ms
+          </p>
         </div>
         <div>
           <p className="text-xs text-slate-500 uppercase">Opponent</p>
-          <p className="text-3xl font-mono text-red-400">{roundResult.playerBTotalMs.toLocaleString()}ms</p>
+          <p className={`text-3xl font-mono ${roundResult.playerBTotalMs < roundResult.playerATotalMs ? 'text-green-400' : roundResult.playerBTotalMs > roundResult.playerATotalMs ? 'text-red-400' : 'text-slate-300'}`}>
+            {roundResult.playerBTotalMs.toLocaleString()}ms
+          </p>
         </div>
       </div>
 

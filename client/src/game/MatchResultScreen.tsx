@@ -54,17 +54,17 @@ export function MatchResultScreen({ match, coinsWon, newBalance, rematchState, o
         </p>
       )}
 
-      {/* Cumulative total time — the deciding stat */}
+      {/* Cumulative total time — green for faster, red for slower */}
       <div className="flex gap-8 text-center">
         <div>
           <p className="text-xs text-slate-500 uppercase">Your total</p>
-          <p className={`text-3xl font-mono ${won ? 'text-green-400' : draw ? 'text-yellow-400' : 'text-cyan-400'}`}>
+          <p className={`text-3xl font-mono ${totalPlayerMs < totalOpponentMs ? 'text-green-400' : totalPlayerMs > totalOpponentMs ? 'text-red-400' : 'text-slate-300'}`}>
             {totalPlayerMs.toLocaleString()}ms
           </p>
         </div>
         <div>
           <p className="text-xs text-slate-500 uppercase">Opponent</p>
-          <p className={`text-3xl font-mono ${!won && !draw ? 'text-green-400' : 'text-red-400'}`}>
+          <p className={`text-3xl font-mono ${totalOpponentMs < totalPlayerMs ? 'text-green-400' : totalOpponentMs > totalPlayerMs ? 'text-red-400' : 'text-slate-300'}`}>
             {totalOpponentMs.toLocaleString()}ms
           </p>
         </div>
@@ -94,9 +94,9 @@ export function MatchResultScreen({ match, coinsWon, newBalance, rematchState, o
           return (
             <div key={i} className="flex items-center justify-between text-xs px-3 py-2 bg-slate-900 rounded-lg">
               <span className="text-slate-500 font-bold">R{rr.roundNumber}</span>
-              <span className="font-mono text-cyan-400">{rr.playerATotalMs.toLocaleString()}ms</span>
+              <span className={`font-mono ${rr.playerATotalMs < rr.playerBTotalMs ? 'text-green-400' : rr.playerATotalMs > rr.playerBTotalMs ? 'text-red-400' : 'text-slate-300'}`}>{rr.playerATotalMs.toLocaleString()}ms</span>
               <span className="text-slate-600">vs</span>
-              <span className="font-mono text-red-400">{rr.playerBTotalMs.toLocaleString()}ms</span>
+              <span className={`font-mono ${rr.playerBTotalMs < rr.playerATotalMs ? 'text-green-400' : rr.playerBTotalMs > rr.playerATotalMs ? 'text-red-400' : 'text-slate-300'}`}>{rr.playerBTotalMs.toLocaleString()}ms</span>
               <span className={`font-bold ${isDraw ? 'text-yellow-400' : playerWon ? 'text-green-400' : 'text-red-400'}`}>
                 {isDraw ? 'DRAW' : playerWon ? 'WIN' : 'LOSS'}
               </span>
