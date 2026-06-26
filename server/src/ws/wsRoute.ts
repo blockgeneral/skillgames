@@ -13,6 +13,8 @@ import { GameSessionManager } from '../game/GameSessionManager.js';
 import { CoinBalanceManager } from '../wallet/CoinBalance.js';
 import { RematchHandler } from '../matchmaking/RematchHandler.js';
 import { setSession, removeSession } from '../redis/sessionStore.js';
+import { verifyDeposit } from '../wallet/DepositVerifier.js';
+import { getRedisClient } from '../redis/redisClient.js';
 
 function getScaledGraceMs(): number {
   return RECONNECT_GRACE_MS * Math.max(0.01, Number(process.env.GAME_TIME_SCALE ?? 1));
@@ -235,6 +237,38 @@ export function registerWsRoute(
         case 'DEPOSIT_CONFIRMED':
           app.log.info(`[WS] ${playerId} sent ${clientMsg.type}`);
           break;
+
+        case 'WALLET_CONNECTED': {
+          const redis = getRedisClient();
+          await redis.set(`wallet:${playerId}`, clientMsg.address);
+          app.log.info(`[WS] ${playerId} connected wallet: ${clientMsg.address}`);
+          break;
+        }
+
+        case 'DEPOSIT_SUBMITTED': {
+          const redis = getRedisClient();
+          const walletAddress = await redis.get(`wallet:${playerId}`);
+          if (!walletAddress) {
+            manager.send(playerId!, { type: 'DEPOSIT_FAILED', reason: 'No wallet connected' });
+            break;
+          }
+          app.log.info(`[WS] ${playerId} submitted deposit: ${clientMsg.amount} TON`);
+          // Verify asynchronously — don't block the message loop
+          void (async () => {
+            const result = await verifyDeposit(walletAddress, clientMsg.amount);
+            if (result.confirmed) {
+              const coins = Math.round(clientMsg.amount * 100);
+              await coinBalance.credit(playerId!, coins, 'deposit');
+              const newBal = await coinBalance.getBalance(playerId!);
+              manager.send(playerId!, { type: 'DEPOSIT_CONFIRMED', newBalance: newBal, amount: coins });
+              manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: newBal });
+              app.log.info(`[WS] ${playerId} deposit confirmed: +${coins} Coins`);
+            } else {
+              manager.send(playerId!, { type: 'DEPOSIT_FAILED', reason: result.reason ?? 'Transaction not found' });
+            }
+          })();
+          break;
+        }
 
         default:
           sendError(socket, 'unknown_message_type', `Unknown message type: ${msg.type}`);

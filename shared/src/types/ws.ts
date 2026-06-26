@@ -61,6 +61,8 @@ export interface MatchCancelledMessage { readonly type: 'MATCH_CANCELLED'; reado
 export interface OpponentDisconnectedMessage { readonly type: 'OPPONENT_DISCONNECTED'; readonly matchId: MatchId }
 
 export interface BalanceUpdateMessage { readonly type: 'BALANCE_UPDATE'; readonly balance: number }
+export interface WalletDepositConfirmedMessage { readonly type: 'DEPOSIT_CONFIRMED'; readonly newBalance: number; readonly amount: number }
+export interface WalletDepositFailedMessage { readonly type: 'DEPOSIT_FAILED'; readonly reason: string }
 
 export interface RematchOfferedMessage { readonly type: 'REMATCH_OFFERED'; readonly matchId: MatchId; readonly opponentName: string; readonly wagerAmount: WagerAmount }
 export interface RematchAcceptedMessage { readonly type: 'REMATCH_ACCEPTED'; readonly newMatchId: MatchId }
@@ -73,7 +75,8 @@ export type ServerMessage =
   | PromptShowMessage | PromptResultMessage | OpponentProgressMessage
   | RoundStartMessage | RoundResultServerMessage | MatchResultServerMessage | MatchStateSyncMessage
   | DepositStatusMessage | ErrorMessage | MatchCancelledMessage | OpponentDisconnectedMessage
-  | BalanceUpdateMessage | RematchOfferedMessage | RematchAcceptedMessage | RematchDeclinedMessage;
+  | BalanceUpdateMessage | WalletDepositConfirmedMessage | WalletDepositFailedMessage
+  | RematchOfferedMessage | RematchAcceptedMessage | RematchDeclinedMessage;
 
 // ─── Client → Server messages ───────────────────────────────────────────────
 
@@ -101,9 +104,12 @@ export interface SwipeMessage {
 export interface FalseStartMessage { readonly type: 'FALSE_START'; readonly matchId: MatchId; readonly roundNumber: number; readonly timestamp: Timestamp }
 export interface RematchRequestMessage { readonly type: 'REMATCH_REQUEST'; readonly matchId: MatchId }
 export interface RematchDeclineMessage { readonly type: 'REMATCH_DECLINE'; readonly matchId: MatchId }
+export interface WalletConnectedMessage { readonly type: 'WALLET_CONNECTED'; readonly address: string }
+export interface DepositSubmittedMessage { readonly type: 'DEPOSIT_SUBMITTED'; readonly txHash: string; readonly amount: number }
 
 export type ClientMessage =
   | AuthMessage | JoinQueueMessage | LeaveQueueMessage
   | CreateChallengeMessage | JoinChallengeMessage | CancelChallengeMessage
   | PlayerReadyMessage | DepositConfirmedMessage
-  | TapMessage | SwipeMessage | FalseStartMessage | RematchRequestMessage | RematchDeclineMessage;
+  | TapMessage | SwipeMessage | FalseStartMessage | RematchRequestMessage | RematchDeclineMessage
+  | WalletConnectedMessage | DepositSubmittedMessage;

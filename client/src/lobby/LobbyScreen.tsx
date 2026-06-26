@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WagerAmount, MatchId, PlayerInfo } from '@skillgamez/shared';
-import { VALID_WAGER_AMOUNTS, tonToCoins, formatCoins } from '@skillgamez/shared';
+import { VALID_WAGER_AMOUNTS, VALID_DEPOSIT_AMOUNTS, VAULT_CONTRACT_ADDRESS, tonToCoins, formatCoins } from '@skillgamez/shared';
+import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import type { WebSocketState } from '../ws/useWebSocket.js';
 
 interface Props {
@@ -18,13 +19,33 @@ type LobbyState =
   | { kind: 'joining_challenge' }
   | { kind: 'found'; opponentName: string };
 
+type DepositState = 'idle' | 'picking' | 'confirming' | 'failed';
+
 export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.Element {
   const [tab, setTab] = useState<LobbyTab>('quick');
   const [selected, setSelected] = useState<WagerAmount>(1);
   const [state, setState] = useState<LobbyState>({ kind: 'idle' });
   const [challengeInput, setChallengeInput] = useState('');
+  const [depositState, setDepositState] = useState<DepositState>('idle');
+  const [depositError, setDepositError] = useState('');
+
+  const [tonConnectUI] = useTonConnectUI();
+  const wallet = useTonWallet();
 
   const lastProcessedRef = useRef<unknown>(null);
+  const walletSentRef = useRef(false);
+
+  // Send WALLET_CONNECTED when wallet connects
+  useEffect(() => {
+    if (wallet && ws.connected && !walletSentRef.current) {
+      const address = wallet.account.address;
+      ws.send({ type: 'WALLET_CONNECTED', address });
+      walletSentRef.current = true;
+    }
+    if (!wallet) {
+      walletSentRef.current = false;
+    }
+  }, [wallet, ws]);
 
   // Handle incoming messages
   useEffect(() => {
@@ -54,6 +75,13 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
       case 'CHALLENGE_INVALID':
         setState({ kind: 'idle' });
         break;
+      case 'DEPOSIT_CONFIRMED':
+        setDepositState('idle');
+        break;
+      case 'DEPOSIT_FAILED':
+        setDepositState('failed');
+        setDepositError(msg.reason);
+        break;
     }
   }, [ws.lastMessage, onMatchFound]);
 
@@ -82,6 +110,28 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
     setState({ kind: 'joining_challenge' });
   }, [ws, challengeInput]);
 
+  const handleDeposit = useCallback(async (amount: number) => {
+    if (!wallet) return;
+    setDepositState('confirming');
+    setDepositError('');
+
+    try {
+      const result = await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 300,
+        messages: [{
+          address: VAULT_CONTRACT_ADDRESS,
+          amount: String(Math.round(amount * 1e9)),
+        }],
+      });
+      // Transaction was signed and sent — tell the server to verify
+      // The BOC is base64-encoded, use it as the tx identifier
+      const txHash = result.boc;
+      ws.send({ type: 'DEPOSIT_SUBMITTED', txHash, amount });
+    } catch {
+      setDepositState('idle');
+    }
+  }, [wallet, tonConnectUI, ws]);
+
   // ─── Found state ────────────────────────────────────────────────────
   if (state.kind === 'found') {
     return (
@@ -93,8 +143,12 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
     );
   }
 
+  const shortAddress = wallet
+    ? `${wallet.account.address.slice(0, 4)}...${wallet.account.address.slice(-4)}`
+    : null;
+
   return (
-    <div className="flex flex-col items-center h-full px-6 pt-12 gap-6">
+    <div className="flex flex-col items-center h-full px-6 pt-12 gap-6 overflow-y-auto pb-8">
       {/* Connection status */}
       <div className="flex items-center gap-2">
         <div className={`w-2 h-2 rounded-full ${ws.connected ? 'bg-green-400' : 'bg-red-400'}`} />
@@ -103,11 +157,89 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
         </p>
       </div>
 
-      {/* Coin balance */}
-      {balance !== null && (
-        <div className="bg-slate-800 rounded-xl px-6 py-3 text-center">
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Balance</p>
-          <p className="text-2xl font-extrabold text-yellow-400 font-mono">{formatCoins(balance)}</p>
+      {/* Wallet + Balance row */}
+      <div className="flex gap-3 w-full max-w-xs">
+        {/* Balance */}
+        {balance !== null && (
+          <div className="flex-1 bg-slate-800 rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-slate-500 uppercase tracking-wider">Balance</p>
+            <p className="text-xl font-extrabold text-yellow-400 font-mono">{formatCoins(balance)}</p>
+          </div>
+        )}
+        {/* Wallet status */}
+        <div className="flex-1 flex flex-col items-center justify-center">
+          {wallet ? (
+            <div className="text-center">
+              <p className="text-xs text-slate-500">Wallet</p>
+              <p className="text-xs text-green-400 font-mono">{shortAddress}</p>
+              <button
+                onPointerDown={() => tonConnectUI.disconnect()}
+                className="text-xs text-slate-600 mt-1 underline"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <button
+              onPointerDown={() => tonConnectUI.openModal()}
+              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold active:bg-blue-500 transition-colors"
+            >
+              Connect Wallet
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Deposit section — only when wallet connected */}
+      {wallet && depositState !== 'confirming' && (
+        <div className="w-full max-w-xs">
+          {depositState === 'idle' && (
+            <button
+              onPointerDown={() => setDepositState('picking')}
+              className="w-full py-3 rounded-xl bg-green-600 text-white text-sm font-bold active:bg-green-500 transition-colors"
+            >
+              DEPOSIT TON
+            </button>
+          )}
+          {depositState === 'picking' && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-slate-500 text-center uppercase">Select deposit amount</p>
+              <div className="flex gap-2 justify-center">
+                {VALID_DEPOSIT_AMOUNTS.map((amt) => (
+                  <button
+                    key={amt}
+                    onPointerDown={() => handleDeposit(amt)}
+                    className="px-4 py-2 rounded-lg bg-green-700 text-white text-sm font-bold active:bg-green-600 transition-colors"
+                  >
+                    {amt} TON
+                  </button>
+                ))}
+              </div>
+              <button
+                onPointerDown={() => setDepositState('idle')}
+                className="text-xs text-slate-500 text-center mt-1"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {depositState === 'failed' && (
+            <div className="text-center">
+              <p className="text-red-400 text-xs">{depositError}</p>
+              <button
+                onPointerDown={() => setDepositState('idle')}
+                className="text-xs text-slate-500 mt-1 underline"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {depositState === 'confirming' && (
+        <div className="w-full max-w-xs flex flex-col items-center gap-2">
+          <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-green-400">Confirming deposit...</p>
         </div>
       )}
 
@@ -152,7 +284,6 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
             </button>
           ))}
         </div>
-        {/* Wager cost + remaining balance */}
         <div className="text-center mt-2">
           <p className="text-sm text-slate-400">
             Wager: <span className="text-yellow-400 font-bold">{formatCoins(wagerCoins)}</span>
