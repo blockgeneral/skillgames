@@ -241,6 +241,9 @@ export function registerWsRoute(
         case 'WALLET_CONNECTED': {
           const redis = getRedisClient();
           await redis.set(`wallet:${playerId}`, clientMsg.address);
+          // Reset balance to 0 — real wallet players don't get mock grant
+          const newBal = await coinBalance.resetForWallet(playerId!);
+          manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: newBal });
           app.log.info(`[WS] ${playerId} connected wallet: ${clientMsg.address}`);
           break;
         }

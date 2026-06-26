@@ -88,12 +88,25 @@ export class CoinBalanceManager {
     return raw.map((entry) => JSON.parse(entry));
   }
 
+  /**
+   * Reset balance to 0 when a real wallet is connected.
+   * If the player already received the mock grant, this removes it.
+   */
+  async resetForWallet(playerId: PlayerId): Promise<number> {
+    const redis = getRedisClient();
+    await redis.set(balanceKey(playerId), 0);
+    return 0;
+  }
+
   private async grantInitial(playerId: PlayerId): Promise<number> {
     const redis = getRedisClient();
+    // Only grant mock coins if no real wallet is connected
+    const hasWallet = await redis.exists(`wallet:${playerId}`);
+    const grantAmount = hasWallet ? 0 : INITIAL_GRANT_COINS;
     // Use SETNX to avoid double-granting on race
-    const wasSet = await redis.setnx(balanceKey(playerId), INITIAL_GRANT_COINS);
-    if (wasSet) {
-      await this.recordTransaction(playerId, INITIAL_GRANT_COINS, 'initial_grant', INITIAL_GRANT_COINS);
+    const wasSet = await redis.setnx(balanceKey(playerId), grantAmount);
+    if (wasSet && grantAmount > 0) {
+      await this.recordTransaction(playerId, grantAmount, 'initial_grant', grantAmount);
     }
     const balance = await redis.get(balanceKey(playerId));
     return Number(balance);
