@@ -116,13 +116,19 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
     setDepositError('');
 
     try {
-      const result = await tonConnectUI.sendTransaction({
-        validUntil: Math.floor(Date.now() / 1000) + 300,
-        messages: [{
-          address: VAULT_CONTRACT_ADDRESS,
-          amount: String(Math.round(amount * 1e9)),
-        }],
-      });
+      const result = await tonConnectUI.sendTransaction(
+        {
+          validUntil: Math.floor(Date.now() / 1000) + 300,
+          messages: [{
+            address: VAULT_CONTRACT_ADDRESS,
+            amount: String(Math.round(amount * 1e9)),
+          }],
+        },
+        {
+          twaReturnUrl: 'https://t.me/SkillGamezBot/app' as `${string}://${string}`,
+          returnStrategy: 'back',
+        },
+      );
       // Transaction was signed and sent — tell the server to verify
       // The BOC is base64-encoded, use it as the tx identifier
       const txHash = result.boc;
@@ -173,16 +179,18 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
               <p className="text-xs text-slate-500">Wallet</p>
               <p className="text-xs text-green-400 font-mono">{shortAddress}</p>
               <button
-                onPointerDown={() => tonConnectUI.disconnect()}
+                onClick={() => tonConnectUI.disconnect()}
                 className="text-xs text-slate-600 mt-1 underline"
+                style={{ touchAction: 'manipulation' }}
               >
                 Disconnect
               </button>
             </div>
           ) : (
             <button
-              onPointerDown={() => tonConnectUI.openModal()}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); tonConnectUI.openModal(); }}
               className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold active:bg-blue-500 transition-colors"
+              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent', userSelect: 'none' }}
             >
               Connect Wallet
             </button>
@@ -208,8 +216,9 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
                 {VALID_DEPOSIT_AMOUNTS.map((amt) => (
                   <button
                     key={amt}
-                    onPointerDown={() => handleDeposit(amt)}
+                    onClick={() => handleDeposit(amt)}
                     className="px-4 py-2 rounded-lg bg-green-700 text-white text-sm font-bold active:bg-green-600 transition-colors"
+                    style={{ touchAction: 'manipulation' }}
                   >
                     {amt} TON
                   </button>

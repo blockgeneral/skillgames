@@ -13,7 +13,13 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <TonConnectUIProvider manifestUrl={manifestUrl}>
+    <TonConnectUIProvider
+      manifestUrl={manifestUrl}
+      actionsConfiguration={{
+        twaReturnUrl: 'https://t.me/SkillGamezBot/app' as `${string}://${string}`,
+        returnStrategy: 'back',
+      }}
+    >
       <App />
     </TonConnectUIProvider>
   </StrictMode>
