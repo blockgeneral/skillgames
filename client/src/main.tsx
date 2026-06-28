@@ -16,7 +16,7 @@ createRoot(rootElement).render(
     <TonConnectUIProvider
       manifestUrl={manifestUrl}
       actionsConfiguration={{
-        twaReturnUrl: 'https://t.me/SkillGamezBot/app' as `${string}://${string}`,
+        twaReturnUrl: 'https://t.me/SkillGamezBot/sbg' as `${string}://${string}`,
         returnStrategy: 'back',
       }}
     >

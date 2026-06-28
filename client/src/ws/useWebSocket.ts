@@ -7,6 +7,24 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? `ws://${window.location.hostname}:
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_BASE_MS = 1000;
 
+/** Get real Telegram initData if running inside Telegram WebApp */
+function getTelegramInitData(): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (window as any).Telegram?.WebApp?.initData || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Build mock initData for dev testing (?user=N) */
+function getMockInitData(): string {
+  const params = new URLSearchParams(window.location.search);
+  const userId = Number(params.get('user') || '1');
+  const firstName = `Player${userId}`;
+  return JSON.stringify({ id: userId, firstName });
+}
+
 export interface WebSocketState {
   connected: boolean;
   playerId: PlayerId | null;
@@ -14,7 +32,7 @@ export interface WebSocketState {
   send: (message: ClientMessage) => void;
   lastMessage: ServerMessage | null;
   error: string | null;
-  connect: (userId: number, firstName: string) => void;
+  connect: () => void;
   disconnect: () => void;
 }
 
@@ -28,7 +46,7 @@ export function useWebSocket(): WebSocketState {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const authDataRef = useRef<{ userId: number; firstName: string } | null>(null);
+  const initDataRef = useRef<string | null>(null);
   const intentionalCloseRef = useRef(false);
 
   const cleanup = useCallback(() => {
@@ -49,7 +67,7 @@ export function useWebSocket(): WebSocketState {
   }, []);
 
   const doConnect = useCallback(() => {
-    if (!authDataRef.current) return;
+    if (!initDataRef.current) return;
     cleanup();
 
     const ws = new WebSocket(WS_URL);
@@ -57,20 +75,12 @@ export function useWebSocket(): WebSocketState {
 
     ws.onopen = () => {
       reconnectAttemptRef.current = 0;
-      const initData = JSON.stringify({
-        id: authDataRef.current!.userId,
-        firstName: authDataRef.current!.firstName,
-      });
-      ws.send(JSON.stringify({ type: 'AUTH', initData }));
+      ws.send(JSON.stringify({ type: 'AUTH', initData: initDataRef.current }));
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
-        // flushSync ensures each message gets its own render cycle.
-        // Without it, React 18 batching can merge rapid back-to-back
-        // messages (e.g. MATCH_RESULT + BALANCE_UPDATE) into one render,
-        // dropping the first message before any effect processes it.
         flushSync(() => {
           if (msg.type === 'AUTH_OK') {
             setPlayerId(msg.playerId);
@@ -91,7 +101,7 @@ export function useWebSocket(): WebSocketState {
       setConnected(false);
       wsRef.current = null;
 
-      if (!intentionalCloseRef.current && authDataRef.current && reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS) {
+      if (!intentionalCloseRef.current && initDataRef.current && reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = RECONNECT_BASE_MS * Math.pow(2, reconnectAttemptRef.current);
         reconnectAttemptRef.current++;
         reconnectTimerRef.current = setTimeout(doConnect, delay);
@@ -103,8 +113,9 @@ export function useWebSocket(): WebSocketState {
     };
   }, [cleanup]);
 
-  const connect = useCallback((userId: number, firstName: string) => {
-    authDataRef.current = { userId, firstName };
+  const connect = useCallback(() => {
+    // Use real Telegram initData if available, otherwise mock
+    initDataRef.current = getTelegramInitData() ?? getMockInitData();
     intentionalCloseRef.current = false;
     reconnectAttemptRef.current = 0;
     doConnect();
@@ -112,7 +123,7 @@ export function useWebSocket(): WebSocketState {
 
   const disconnect = useCallback(() => {
     intentionalCloseRef.current = true;
-    authDataRef.current = null;
+    initDataRef.current = null;
     cleanup();
     setConnected(false);
     setPlayerId(null);

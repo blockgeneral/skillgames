@@ -16,12 +16,6 @@ import { LobbyScreen } from './lobby/LobbyScreen.js';
 
 type AppScreen = 'start' | 'tutorial' | 'lobby' | 'ready' | 'multiplayer' | 'practice';
 
-// Mock user from URL params: ?user=1 or ?user=2
-const params = new URLSearchParams(window.location.search);
-const userParam = params.get('user');
-const mockUserId = userParam ? Number(userParam) : 1;
-const mockUserName = `Player${mockUserId}`;
-
 export function App(): JSX.Element {
   const [screen, setScreen] = useState<AppScreen>('start');
   const [showDebug, setShowDebug] = useState(false);
@@ -79,7 +73,7 @@ export function App(): JSX.Element {
   // Connect when entering lobby
   useEffect(() => {
     if (screen === 'lobby' && !ws.connected) {
-      ws.connect(mockUserId, mockUserName);
+      ws.connect();
     }
   }, [screen, ws]);
 
