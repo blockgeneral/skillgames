@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WagerAmount, MatchId, PlayerInfo } from '@skillgamez/shared';
-import { VALID_WAGER_AMOUNTS, VALID_DEPOSIT_AMOUNTS, VAULT_CONTRACT_ADDRESS, tonToCoins, formatCoins } from '@skillgamez/shared';
+import { VALID_WAGER_AMOUNTS, VALID_DEPOSIT_AMOUNTS, VAULT_CONTRACT_ADDRESS, tonToCoins, coinsToTonAfterFee, formatCoins } from '@skillgamez/shared';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import type { WebSocketState } from '../ws/useWebSocket.js';
 
@@ -20,6 +20,9 @@ type LobbyState =
   | { kind: 'found'; opponentName: string };
 
 type DepositState = 'idle' | 'picking' | 'confirming' | 'failed';
+type WithdrawState = 'idle' | 'picking' | 'processing' | 'failed';
+
+const WITHDRAW_AMOUNTS = [50, 100, 200, 500];
 
 export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.Element {
   const [tab, setTab] = useState<LobbyTab>('quick');
@@ -28,6 +31,8 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
   const [challengeInput, setChallengeInput] = useState('');
   const [depositState, setDepositState] = useState<DepositState>('idle');
   const [depositError, setDepositError] = useState('');
+  const [withdrawState, setWithdrawState] = useState<WithdrawState>('idle');
+  const [withdrawError, setWithdrawError] = useState('');
 
   const [tonConnectUI] = useTonConnectUI();
   const wallet = useTonWallet();
@@ -81,6 +86,13 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
       case 'DEPOSIT_FAILED':
         setDepositState('failed');
         setDepositError(msg.reason);
+        break;
+      case 'WITHDRAW_CONFIRMED':
+        setWithdrawState('idle');
+        break;
+      case 'WITHDRAW_FAILED':
+        setWithdrawState('failed');
+        setWithdrawError(msg.reason);
         break;
     }
   }, [ws.lastMessage, onMatchFound]);
@@ -137,6 +149,18 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
       setDepositState('idle');
     }
   }, [wallet, tonConnectUI, ws]);
+
+  const handleWithdraw = useCallback((coins: number) => {
+    setWithdrawState('processing');
+    setWithdrawError('');
+    ws.send({ type: 'WITHDRAW_REQUEST', amount: coins });
+  }, [ws]);
+
+  const handleWithdrawAll = useCallback(() => {
+    if (balance && balance >= 10) {
+      handleWithdraw(balance);
+    }
+  }, [balance, handleWithdraw]);
 
   // ─── Found state ────────────────────────────────────────────────────
   if (state.kind === 'found') {
@@ -249,6 +273,73 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
         <div className="w-full max-w-xs flex flex-col items-center gap-2">
           <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-green-400">Confirming deposit...</p>
+        </div>
+      )}
+
+      {/* Withdraw section — wallet connected and balance > 0 */}
+      {wallet && balance !== null && balance > 0 && withdrawState !== 'processing' && (
+        <div className="w-full max-w-xs">
+          {withdrawState === 'idle' && (
+            <button
+              onClick={() => setWithdrawState('picking')}
+              className="w-full py-3 rounded-xl bg-orange-600 text-white text-sm font-bold active:bg-orange-500 transition-colors"
+              style={{ touchAction: 'manipulation' }}
+            >
+              WITHDRAW
+            </button>
+          )}
+          {withdrawState === 'picking' && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-slate-500 text-center uppercase">Select withdrawal amount</p>
+              <div className="flex gap-2 justify-center flex-wrap">
+                {WITHDRAW_AMOUNTS.filter(a => balance >= a).map((amt) => (
+                  <button
+                    key={amt}
+                    onClick={() => handleWithdraw(amt)}
+                    className="px-3 py-2 rounded-lg bg-orange-700 text-white text-xs font-bold active:bg-orange-600 transition-colors"
+                    style={{ touchAction: 'manipulation' }}
+                  >
+                    <span>{amt} Coins</span>
+                    <span className="block text-orange-300 text-[10px]">{coinsToTonAfterFee(amt).toFixed(2)} TON</span>
+                  </button>
+                ))}
+                <button
+                  onClick={handleWithdrawAll}
+                  className="px-3 py-2 rounded-lg bg-orange-700 text-white text-xs font-bold active:bg-orange-600 transition-colors"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <span>ALL ({balance})</span>
+                  <span className="block text-orange-300 text-[10px]">{coinsToTonAfterFee(balance).toFixed(2)} TON</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-600 text-center">10% platform fee applies. Min 10 Coins.</p>
+              <button
+                onClick={() => setWithdrawState('idle')}
+                className="text-xs text-slate-500 text-center mt-1"
+                style={{ touchAction: 'manipulation' }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {withdrawState === 'failed' && (
+            <div className="text-center">
+              <p className="text-red-400 text-xs">{withdrawError}</p>
+              <button
+                onClick={() => setWithdrawState('idle')}
+                className="text-xs text-slate-500 mt-1 underline"
+                style={{ touchAction: 'manipulation' }}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {withdrawState === 'processing' && (
+        <div className="w-full max-w-xs flex flex-col items-center gap-2">
+          <div className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-orange-400">Processing withdrawal...</p>
         </div>
       )}
 

@@ -14,6 +14,8 @@ import { CoinBalanceManager } from '../wallet/CoinBalance.js';
 import { RematchHandler } from '../matchmaking/RematchHandler.js';
 import { setSession, removeSession } from '../redis/sessionStore.js';
 import { verifyDeposit } from '../wallet/DepositVerifier.js';
+import { sendWithdrawal } from '../wallet/VaultWithdrawer.js';
+import { coinsToTon } from '@skillgamez/shared';
 import { getRedisClient } from '../redis/redisClient.js';
 
 function getScaledGraceMs(): number {
@@ -268,6 +270,64 @@ export function registerWsRoute(
               app.log.info(`[WS] ${playerId} deposit confirmed: +${coins} Coins`);
             } else {
               manager.send(playerId!, { type: 'DEPOSIT_FAILED', reason: result.reason ?? 'Transaction not found' });
+            }
+          })();
+          break;
+        }
+
+        case 'WITHDRAW_REQUEST': {
+          const redis = getRedisClient();
+          const walletAddress = await redis.get(`wallet:${playerId}`);
+          if (!walletAddress) {
+            manager.send(playerId!, { type: 'WITHDRAW_FAILED', reason: 'No wallet connected' });
+            break;
+          }
+          const amount = clientMsg.amount;
+          if (typeof amount !== 'number' || amount < 10) {
+            manager.send(playerId!, { type: 'WITHDRAW_FAILED', reason: 'Minimum withdrawal is 10 Coins' });
+            break;
+          }
+          // Rate limit: one withdrawal per 60 seconds
+          const rateLimitKey = `withdraw_cooldown:${playerId}`;
+          const cooldown = await redis.get(rateLimitKey);
+          if (cooldown) {
+            manager.send(playerId!, { type: 'WITHDRAW_FAILED', reason: 'Please wait 60 seconds between withdrawals' });
+            break;
+          }
+
+          app.log.info(`[WS] ${playerId} requested withdrawal: ${amount} Coins`);
+
+          // Debit coins first (prevents double-withdraw)
+          try {
+            await coinBalance.debit(playerId!, amount, 'withdrawal');
+          } catch {
+            manager.send(playerId!, { type: 'WITHDRAW_FAILED', reason: 'Insufficient balance' });
+            break;
+          }
+
+          // Set cooldown
+          await redis.set(rateLimitKey, '1', 'EX', 60);
+
+          // Convert coins to gross nanoTON for the vault contract
+          const grossTon = coinsToTon(amount);
+          const grossNano = BigInt(Math.round(grossTon * 1e9));
+
+          // Send withdrawal asynchronously
+          void (async () => {
+            const result = await sendWithdrawal(walletAddress, grossNano);
+            if (result.success) {
+              const tonSent = grossTon * 0.9; // 10% fee deducted by contract
+              const bal = await coinBalance.getBalance(playerId!);
+              manager.send(playerId!, { type: 'WITHDRAW_CONFIRMED', coinsDeducted: amount, tonSent, newBalance: bal });
+              manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: bal });
+              app.log.info(`[WS] ${playerId} withdrawal confirmed: -${amount} Coins, ~${tonSent} TON sent`);
+            } else {
+              // Re-credit on failure
+              await coinBalance.credit(playerId!, amount, 'wager_refund');
+              const bal = await coinBalance.getBalance(playerId!);
+              manager.send(playerId!, { type: 'WITHDRAW_FAILED', reason: result.reason ?? 'Withdrawal failed' });
+              manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: bal });
+              app.log.info(`[WS] ${playerId} withdrawal failed, re-credited ${amount} Coins`);
             }
           })();
           break;
