@@ -3,7 +3,7 @@ import { mnemonicToPrivateKey } from '@ton/crypto';
 import { VAULT_CONTRACT_ADDRESS } from '@skillgamez/shared';
 
 const WITHDRAW_OPCODE = 1859205641;
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 5000;
 const MAX_POLL_DURATION_MS = 60000;
 
 let cachedClient: TonClient | null = null;
@@ -12,9 +12,29 @@ function getClient(): TonClient {
   if (!cachedClient) {
     cachedClient = new TonClient({
       endpoint: process.env.TONCENTER_ENDPOINT ?? 'https://toncenter.com/api/v2/jsonRPC',
+      apiKey: process.env.TONCENTER_API_KEY,
     });
   }
   return cachedClient;
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelayMs = 2000,
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const is429 = err instanceof Error && err.message.includes('429');
+      if (!is429 || attempt === maxRetries) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      console.log(`[VaultWithdrawer] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('withRetry: unreachable');
 }
 
 export interface WithdrawResult {
@@ -37,9 +57,6 @@ function buildWithdrawBody(recipient: Address, amount: bigint) {
 /**
  * Send a Withdraw message to the vault contract from the owner wallet.
  * The contract deducts 10% fee and sends 90% to the recipient.
- *
- * @param recipientAddress - player's wallet address (user-friendly or raw)
- * @param grossAmountNano - gross amount in nanoTON (before fee)
  */
 export async function sendWithdrawal(
   recipientAddress: string,
@@ -55,26 +72,24 @@ export async function sendWithdrawal(
   const vaultAddress = Address.parse(VAULT_CONTRACT_ADDRESS);
 
   try {
-    // Derive owner wallet from mnemonic
     const keyPair = await mnemonicToPrivateKey(mnemonic.split(' '));
     const ownerWallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
     const ownerContract = client.open(ownerWallet);
-    const seqno = await ownerContract.getSeqno();
+    const seqno = await withRetry(() => ownerContract.getSeqno());
 
     console.log(`[VaultWithdrawer] Sending withdraw: ${grossAmountNano} nanoTON to ${recipient.toString()}`);
 
-    // Send Withdraw message to vault contract
-    await ownerContract.sendTransfer({
+    await withRetry(() => ownerContract.sendTransfer({
       seqno,
       secretKey: keyPair.secretKey,
       messages: [
         internal({
           to: vaultAddress,
-          value: toNano('0.05'), // gas for the vault contract to process
+          value: toNano('0.05'),
           body: buildWithdrawBody(recipient, grossAmountNano),
         }),
       ],
-    });
+    }));
 
     // Poll for confirmation — wait for seqno to increment
     const startedAt = Date.now();
@@ -83,13 +98,13 @@ export async function sendWithdrawal(
     while (Date.now() - startedAt < MAX_POLL_DURATION_MS) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       try {
-        const currentSeqno = await ownerContract.getSeqno();
+        const currentSeqno = await withRetry(() => ownerContract.getSeqno());
         if (currentSeqno > seqno) {
           confirmed = true;
           break;
         }
       } catch {
-        // Rate limited — keep polling
+        // All retries exhausted — keep polling loop going
       }
     }
 

@@ -243,24 +243,23 @@ export function registerWsRoute(
         case 'WALLET_CONNECTED': {
           const redis = getRedisClient();
           const existingWallet = await redis.get(`wallet:${playerId}`);
+          const isFirstEver = existingWallet === null;
 
-          if (existingWallet && existingWallet === clientMsg.address) {
-            // Same wallet reconnecting — don't reset balance
-            const bal = await coinBalance.getBalance(playerId!);
-            manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: bal });
-            app.log.info(`[WS] ${playerId} wallet reconnected: ${clientMsg.address}`);
-          } else if (existingWallet && existingWallet !== clientMsg.address) {
-            // Different wallet — reject the switch
-            sendError(socket, 'wallet_switch_rejected', 'Cannot switch wallets. Disconnect and reconnect to use a different wallet.');
-            const bal = await coinBalance.getBalance(playerId!);
-            manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: bal });
+          // Update wallet mapping (always allowed)
+          await redis.set(`wallet:${playerId}`, clientMsg.address);
+
+          // Only reset balance on first-ever wallet connection (clears mock 1000 grant)
+          if (isFirstEver) {
+            await coinBalance.resetForWallet(playerId!);
+            app.log.info(`[WS] ${playerId} first wallet connected: ${clientMsg.address}`);
+          } else if (existingWallet !== clientMsg.address) {
+            app.log.info(`[WS] ${playerId} switched wallet: ${existingWallet} → ${clientMsg.address}`);
           } else {
-            // First-time wallet connection — reset balance (clear mock grant)
-            await redis.set(`wallet:${playerId}`, clientMsg.address);
-            const newBal = await coinBalance.resetForWallet(playerId!);
-            manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: newBal });
-            app.log.info(`[WS] ${playerId} connected wallet: ${clientMsg.address}`);
+            app.log.info(`[WS] ${playerId} wallet reconnected: ${clientMsg.address}`);
           }
+
+          const bal = await coinBalance.getBalance(playerId!);
+          manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: bal });
           break;
         }
 
