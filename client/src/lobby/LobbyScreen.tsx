@@ -3,6 +3,7 @@ import type { WagerAmount, MatchId, PlayerInfo } from '@skillgamez/shared';
 import { VALID_WAGER_AMOUNTS, VALID_DEPOSIT_AMOUNTS, VAULT_CONTRACT_ADDRESS, tonToCoins, coinsToTonAfterFee, formatCoins } from '@skillgamez/shared';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import type { WebSocketState } from '../ws/useWebSocket.js';
+import { HistoryScreen } from './HistoryScreen.js';
 
 interface Props {
   ws: WebSocketState;
@@ -33,6 +34,7 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
   const [depositError, setDepositError] = useState('');
   const [withdrawState, setWithdrawState] = useState<WithdrawState>('idle');
   const [withdrawError, setWithdrawError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
 
   const [tonConnectUI] = useTonConnectUI();
   const wallet = useTonWallet();
@@ -162,6 +164,11 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
     }
   }, [balance, handleWithdraw]);
 
+  // ─── History screen ──────────────────────────────────────────────────
+  if (showHistory) {
+    return <HistoryScreen ws={ws} onBack={() => setShowHistory(false)} />;
+  }
+
   // ─── Found state ────────────────────────────────────────────────────
   if (state.kind === 'found') {
     return (
@@ -194,6 +201,13 @@ export function LobbyScreen({ ws, balance, onMatchFound, onBack }: Props): JSX.E
           <div className="flex-1 bg-slate-800 rounded-xl px-4 py-3 text-center">
             <p className="text-xs text-slate-500 uppercase tracking-wider">Balance</p>
             <p className="text-xl font-extrabold text-yellow-400 font-mono">{formatCoins(balance)}</p>
+            <button
+              onClick={() => setShowHistory(true)}
+              className="text-[10px] text-cyan-400 mt-1 underline"
+              style={{ touchAction: 'manipulation' }}
+            >
+              History
+            </button>
           </div>
         )}
         {/* Wallet status */}

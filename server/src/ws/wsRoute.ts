@@ -17,6 +17,7 @@ import { verifyDeposit } from '../wallet/DepositVerifier.js';
 import { sendWithdrawal } from '../wallet/VaultWithdrawer.js';
 import { coinsToTon } from '@skillgamez/shared';
 import { getRedisClient } from '../redis/redisClient.js';
+import { addTransaction, getTransactions } from '../wallet/TransactionHistory.js';
 
 function getScaledGraceMs(): number {
   return RECONNECT_GRACE_MS * Math.max(0.01, Number(process.env.GAME_TIME_SCALE ?? 1));
@@ -278,6 +279,7 @@ export function registerWsRoute(
               const coins = Math.round(clientMsg.amount * 100);
               await coinBalance.credit(playerId!, coins, 'deposit');
               const newBal = await coinBalance.getBalance(playerId!);
+              await addTransaction(playerId!, { type: 'deposit', amount: coins, balanceAfter: newBal });
               manager.send(playerId!, { type: 'DEPOSIT_CONFIRMED', newBalance: newBal, amount: coins });
               manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: newBal });
               app.log.info(`[WS] ${playerId} deposit confirmed: +${coins} Coins`);
@@ -330,7 +332,9 @@ export function registerWsRoute(
             const result = await sendWithdrawal(walletAddress, grossNano);
             if (result.success) {
               const tonSent = grossTon * 0.9; // 10% fee deducted by contract
+              const fee = amount * 0.1;
               const bal = await coinBalance.getBalance(playerId!);
+              await addTransaction(playerId!, { type: 'withdrawal', amount, fee, balanceAfter: bal });
               manager.send(playerId!, { type: 'WITHDRAW_CONFIRMED', coinsDeducted: amount, tonSent, newBalance: bal });
               manager.send(playerId!, { type: 'BALANCE_UPDATE', balance: bal });
               app.log.info(`[WS] ${playerId} withdrawal confirmed: -${amount} Coins, ~${tonSent} TON sent`);
@@ -343,6 +347,16 @@ export function registerWsRoute(
               app.log.info(`[WS] ${playerId} withdrawal failed, re-credited ${amount} Coins`);
             }
           })();
+          break;
+        }
+
+        case 'GET_HISTORY': {
+          const txs = await getTransactions(
+            playerId!,
+            typeof clientMsg.limit === 'number' ? clientMsg.limit : 50,
+            typeof clientMsg.before === 'number' ? clientMsg.before : undefined,
+          );
+          manager.send(playerId!, { type: 'HISTORY', transactions: txs });
           break;
         }
 
@@ -379,6 +393,9 @@ export function registerWsRoute(
             try {
               await coinBalance.credit(winnerId, wagerCoins * 2, 'wager_win', mid);
               const winnerBal = await coinBalance.getBalance(winnerId);
+              const loserBal = await coinBalance.getBalance(pid);
+              await addTransaction(winnerId, { type: 'wager_win', amount: wagerCoins * 2, balanceAfter: winnerBal, matchId: mid });
+              await addTransaction(pid, { type: 'wager_loss', amount: 0, balanceAfter: loserBal, matchId: mid });
               manager.send(winnerId, { type: 'BALANCE_UPDATE', balance: winnerBal });
             } catch { /* winner may have disconnected too */ }
           }
@@ -433,6 +450,14 @@ async function handleMatchFound(
     return;
   }
 
+  // Log wager debits
+  const connAForName = manager.getConnection(playerA);
+  const connBForName = manager.getConnection(playerB);
+  const nameA = connAForName?.user.firstName ?? 'Player';
+  const nameB = connBForName?.user.firstName ?? 'Player';
+  void addTransaction(playerA, { type: 'wager_debit', amount: wagerCoins, balanceAfter: balA, matchId, opponentName: nameB });
+  void addTransaction(playerB, { type: 'wager_debit', amount: wagerCoins, balanceAfter: balB, matchId, opponentName: nameA });
+
   const match = await matchRegistry.create(matchId, playerA, playerB, wagerAmount);
 
   for (const pid of [playerA, playerB]) {
@@ -483,9 +508,13 @@ async function handleMatchFound(
         const winnerId = msg.winnerId;
         if (winnerId) {
           const loserId = winnerId === playerA ? playerB : playerA;
+          const winnerName = winnerId === playerA ? nameA : nameB;
+          const loserName = winnerId === playerA ? nameB : nameA;
           await coinBalance.credit(winnerId, wagerCoins * 2, 'wager_win', matchId);
           const winBal = await coinBalance.getBalance(winnerId);
           const loseBal = await coinBalance.getBalance(loserId);
+          await addTransaction(winnerId, { type: 'wager_win', amount: wagerCoins * 2, balanceAfter: winBal, matchId, opponentName: loserName });
+          await addTransaction(loserId, { type: 'wager_loss', amount: 0, balanceAfter: loseBal, matchId, opponentName: winnerName });
           manager.send(winnerId, { ...msg, yourNewBalance: winBal, coinsWon: wagerCoins });
           manager.send(loserId, { ...msg, yourNewBalance: loseBal, coinsWon: -wagerCoins });
           manager.send(winnerId, { type: 'BALANCE_UPDATE', balance: winBal });
@@ -496,6 +525,8 @@ async function handleMatchFound(
           await coinBalance.credit(playerB, wagerCoins, 'wager_refund', matchId);
           const balANew = await coinBalance.getBalance(playerA);
           const balBNew = await coinBalance.getBalance(playerB);
+          await addTransaction(playerA, { type: 'wager_draw', amount: wagerCoins, balanceAfter: balANew, matchId, opponentName: nameB });
+          await addTransaction(playerB, { type: 'wager_draw', amount: wagerCoins, balanceAfter: balBNew, matchId, opponentName: nameA });
           manager.send(playerA, { ...msg, yourNewBalance: balANew, coinsWon: 0 });
           manager.send(playerB, { ...msg, yourNewBalance: balBNew, coinsWon: 0 });
           manager.send(playerA, { type: 'BALANCE_UPDATE', balance: balANew });

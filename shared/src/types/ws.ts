@@ -1,5 +1,6 @@
 import type { MatchId, PlayerId, PlayerInfo, Timestamp, WagerAmount } from './common.js';
 import type { Prompt, PromptResult, RoundResult } from './quickdraw.js';
+import type { Transaction } from './transaction.js';
 
 // ─── Server → Client messages ───────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ export interface WalletDepositConfirmedMessage { readonly type: 'DEPOSIT_CONFIRM
 export interface WalletDepositFailedMessage { readonly type: 'DEPOSIT_FAILED'; readonly reason: string }
 export interface WithdrawConfirmedMessage { readonly type: 'WITHDRAW_CONFIRMED'; readonly coinsDeducted: number; readonly tonSent: number; readonly newBalance: number }
 export interface WithdrawFailedMessage { readonly type: 'WITHDRAW_FAILED'; readonly reason: string }
+export interface HistoryMessage { readonly type: 'HISTORY'; readonly transactions: Transaction[] }
 
 export interface RematchOfferedMessage { readonly type: 'REMATCH_OFFERED'; readonly matchId: MatchId; readonly opponentName: string; readonly wagerAmount: WagerAmount }
 export interface RematchAcceptedMessage { readonly type: 'REMATCH_ACCEPTED'; readonly newMatchId: MatchId }
@@ -78,7 +80,7 @@ export type ServerMessage =
   | RoundStartMessage | RoundResultServerMessage | MatchResultServerMessage | MatchStateSyncMessage
   | DepositStatusMessage | ErrorMessage | MatchCancelledMessage | OpponentDisconnectedMessage
   | BalanceUpdateMessage | WalletDepositConfirmedMessage | WalletDepositFailedMessage
-  | WithdrawConfirmedMessage | WithdrawFailedMessage
+  | WithdrawConfirmedMessage | WithdrawFailedMessage | HistoryMessage
   | RematchOfferedMessage | RematchAcceptedMessage | RematchDeclinedMessage;
 
 // ─── Client → Server messages ───────────────────────────────────────────────
@@ -110,10 +112,11 @@ export interface RematchDeclineMessage { readonly type: 'REMATCH_DECLINE'; reado
 export interface WalletConnectedMessage { readonly type: 'WALLET_CONNECTED'; readonly address: string }
 export interface DepositSubmittedMessage { readonly type: 'DEPOSIT_SUBMITTED'; readonly txHash: string; readonly amount: number }
 export interface WithdrawRequestMessage { readonly type: 'WITHDRAW_REQUEST'; readonly amount: number }
+export interface GetHistoryMessage { readonly type: 'GET_HISTORY'; readonly limit?: number; readonly before?: number }
 
 export type ClientMessage =
   | AuthMessage | JoinQueueMessage | LeaveQueueMessage
   | CreateChallengeMessage | JoinChallengeMessage | CancelChallengeMessage
   | PlayerReadyMessage | DepositConfirmedMessage
   | TapMessage | SwipeMessage | FalseStartMessage | RematchRequestMessage | RematchDeclineMessage
-  | WalletConnectedMessage | DepositSubmittedMessage | WithdrawRequestMessage;
+  | WalletConnectedMessage | DepositSubmittedMessage | WithdrawRequestMessage | GetHistoryMessage;
