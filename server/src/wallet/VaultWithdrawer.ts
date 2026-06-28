@@ -72,39 +72,70 @@ export async function sendWithdrawal(
   const vaultAddress = Address.parse(VAULT_CONTRACT_ADDRESS);
 
   try {
+    // Step 1: Derive owner wallet from mnemonic
+    console.log('[VaultWithdrawer] Deriving owner wallet from mnemonic...');
     const keyPair = await mnemonicToPrivateKey(mnemonic.split(' '));
     const ownerWallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
+    console.log(`[VaultWithdrawer] Owner wallet address: ${ownerWallet.address.toString()}`);
+    console.log(`[VaultWithdrawer] Expected owner:       EQDIChzlqjH-2e3Mq7yP54ACE9Y_l_9vl17xS23Ski_s9uGM`);
+    if (ownerWallet.address.toString() !== 'EQDIChzlqjH-2e3Mq7yP54ACE9Y_l_9vl17xS23Ski_s9uGM') {
+      console.warn('[VaultWithdrawer] WARNING: Derived address does NOT match expected vault owner!');
+    }
+
+    // Step 2: Get current seqno
+    console.log('[VaultWithdrawer] Getting seqno...');
     const ownerContract = client.open(ownerWallet);
-    const seqno = await withRetry(() => ownerContract.getSeqno());
+    let seqno: number;
+    try {
+      seqno = await withRetry(() => ownerContract.getSeqno());
+    } catch (err) {
+      console.error('[VaultWithdrawer] Failed to get seqno:', (err as Error).message);
+      throw err;
+    }
+    console.log(`[VaultWithdrawer] Seqno: ${seqno}`);
 
-    console.log(`[VaultWithdrawer] Sending withdraw: ${grossAmountNano} nanoTON to ${recipient.toString()}`);
-
-    await withRetry(() => ownerContract.sendTransfer({
+    // Step 3: Build and send withdraw transaction
+    console.log('[VaultWithdrawer] Sending withdraw tx...', {
+      recipient: recipient.toString(),
+      amount: grossAmountNano.toString(),
+      vault: vaultAddress.toString(),
       seqno,
-      secretKey: keyPair.secretKey,
-      messages: [
-        internal({
-          to: vaultAddress,
-          value: toNano('0.05'),
-          body: buildWithdrawBody(recipient, grossAmountNano),
-        }),
-      ],
-    }));
+    });
+    try {
+      await withRetry(() => ownerContract.sendTransfer({
+        seqno,
+        secretKey: keyPair.secretKey,
+        messages: [
+          internal({
+            to: vaultAddress,
+            value: toNano('0.05'),
+            body: buildWithdrawBody(recipient, grossAmountNano),
+          }),
+        ],
+      }));
+    } catch (err) {
+      console.error('[VaultWithdrawer] Failed to send transfer:', (err as Error).message);
+      throw err;
+    }
+    console.log('[VaultWithdrawer] Transfer sent, polling confirmation...');
 
-    // Poll for confirmation — wait for seqno to increment
+    // Step 4: Poll for confirmation — wait for seqno to increment
     const startedAt = Date.now();
     let confirmed = false;
+    let pollCount = 0;
 
     while (Date.now() - startedAt < MAX_POLL_DURATION_MS) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      pollCount++;
       try {
         const currentSeqno = await withRetry(() => ownerContract.getSeqno());
+        console.log(`[VaultWithdrawer] Poll #${pollCount}: seqno=${currentSeqno} (waiting for >${seqno})`);
         if (currentSeqno > seqno) {
           confirmed = true;
           break;
         }
-      } catch {
-        // All retries exhausted — keep polling loop going
+      } catch (err) {
+        console.log(`[VaultWithdrawer] Poll #${pollCount} error: ${(err as Error).message}`);
       }
     }
 
@@ -113,7 +144,7 @@ export async function sendWithdrawal(
       return { success: true };
     }
 
-    console.log(`[VaultWithdrawer] Withdrawal timeout — transaction may still be processing`);
+    console.log(`[VaultWithdrawer] Withdrawal timeout after ${pollCount} polls`);
     return { success: false, reason: 'Transaction not confirmed within 60 seconds. It may still be processing.' };
   } catch (err) {
     console.error(`[VaultWithdrawer] Error:`, (err as Error).message);
