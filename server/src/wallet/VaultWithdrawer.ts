@@ -1,4 +1,4 @@
-import { TonClient, WalletContractV4, internal, Address, beginCell, toNano } from '@ton/ton';
+import { TonClient, WalletContractV3R2, internal, Address, beginCell, toNano } from '@ton/ton';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import { VAULT_CONTRACT_ADDRESS } from '@skillgamez/shared';
 
@@ -75,7 +75,7 @@ export async function sendWithdrawal(
     // Step 1: Derive owner wallet from mnemonic
     console.log('[VaultWithdrawer] Deriving owner wallet from mnemonic...');
     const keyPair = await mnemonicToPrivateKey(mnemonic.split(' '));
-    const ownerWallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
+    const ownerWallet = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
     console.log(`[VaultWithdrawer] Owner wallet address: ${ownerWallet.address.toString()}`);
     console.log(`[VaultWithdrawer] Expected owner:       EQDIChzlqjH-2e3Mq7yP54ACE9Y_l_9vl17xS23Ski_s9uGM`);
     if (ownerWallet.address.toString() !== 'EQDIChzlqjH-2e3Mq7yP54ACE9Y_l_9vl17xS23Ski_s9uGM') {
